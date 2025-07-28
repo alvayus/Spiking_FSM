@@ -20,7 +20,7 @@ if __name__ == '__main__':
     # - Spike injectors -
     start_time = [10]
     start_src = sim.Population(1, sim.SpikeSourceArray(spike_times=start_time))
-    sg1_times = [20, 30, 40, 50, 52, 54, 56, 57, 58, 59, 60, 70, 80]
+    sg1_times = [20, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60, 70, 80]
     sg1_src = sim.Population(1, sim.SpikeSourceArray(spike_times=sg1_times))
     sg2_times = []
     #sg2_src = sim.Population(1, sim.SpikeSourceArray(spike_times=sg2_times))
