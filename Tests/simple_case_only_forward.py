@@ -36,7 +36,7 @@ if __name__ == '__main__':
         # - Spike injectors -
         start_time = [10]
         start_src = sim.Population(1, sim.SpikeSourceArray(spike_times=start_time))
-        sg1_times = generate_spike_times(10, 90, 3, 10)
+        sg1_times = generate_spike_times(10, 90, 3, 7)
         sg1_src = sim.Population(1, sim.SpikeSourceArray(spike_times=sg1_times))
         sg2_times = []
         #sg2_src = sim.Population(1, sim.SpikeSourceArray(spike_times=sg2_times))
@@ -96,9 +96,9 @@ if __name__ == '__main__':
         sim.Projection(sim.PopulationView(and_array[3], [0]), sim.PopulationView(and_array[3], [2]), sim.OneToOneConnector(), std_conn)
         sim.Projection(sim.PopulationView(and_array[3], [1]), sim.PopulationView(and_array[3], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
     
-        sim.Projection(sim.PopulationView(and_array[3], [2]), sim.PopulationView(latch_array[2], [0]), sim.OneToOneConnector(), std_conn)  # Previous state
-        sim.Projection(sim.PopulationView(and_array[3], [2]), sim.PopulationView(latch_array[3], [1]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
-        sim.Projection(sim.PopulationView(and_array[3], [2]), sim.PopulationView(latch_array[3], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
+        sim.Projection(sim.PopulationView(and_array[3], [2]), sim.PopulationView(latch_array[1], [0]), sim.OneToOneConnector(), std_conn)  # Previous state
+        sim.Projection(sim.PopulationView(and_array[3], [2]), sim.PopulationView(latch_array[2], [1]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
+        sim.Projection(sim.PopulationView(and_array[3], [2]), sim.PopulationView(latch_array[2], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
         '''
 
         # -- Recording --
