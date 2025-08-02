@@ -6,7 +6,7 @@ import pyNN.spiNNaker as sim
 from matplotlib import pyplot as plt
 
 # Neuron parameters
-global_params = {"min_delay": 1.0, "sim_time": 1000.0}
+global_params = {"min_delay": 1.0, "sim_time": 500.0}
 neuron_params = {"cm": 0.1, "tau_m": 0.1, "tau_refrac": 0.0, "tau_syn_E": 0.1, "tau_syn_I": 0.1, "v_rest": -65.0, "v_reset": -65.0, "v_thresh": -64.91}
 
 
@@ -75,7 +75,7 @@ if __name__ == '__main__':
 
         sim.Projection(sim.PopulationView(op_pop, [4]), sim.PopulationView(op_pop, [9]), sim.OneToOneConnector(), std_conn)  # OP Inh.
         for i in range(1, 3):
-            sim.Projection(sim.PopulationView(op_pop, [9]), sim.PopulationView(latch_array[i], [1, 2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")  # OP Inh.
+            sim.Projection(sim.PopulationView(op_pop, [9]), sim.PopulationView(latch_array[i], [0, 1, 2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")  # OP Inh.
 
         # Input data
         sim.Projection(A_pop, sim.PopulationView(input_data_array[0], [0]), sim.OneToOneConnector(), std_conn)
@@ -241,18 +241,5 @@ if __name__ == '__main__':
 
         plt.tight_layout()
         plt.savefig("results/" + filename + '.png', transparent=False, facecolor='white', edgecolor='black')
-
-        if len(transition_data[2].spiketrains[2]) > 0:
-            first_pattern = int(transition_data[2].spiketrains[2][0])
-            window = 100
-            min_lim = first_pattern - (window / 2)
-            if min_lim < 0:
-                min_lim = 0
-            max_lim = first_pattern + (window / 2)
-            if max_lim > global_params["sim_time"]:
-                max_lim = global_params["sim_time"]
-            plt.xlim([min_lim, max_lim])
-            plt.savefig("results/" + filename + '_zoom.png', transparent=False, facecolor='white', edgecolor='black')
-
         #plt.show()
         plt.close()
