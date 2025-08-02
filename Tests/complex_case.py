@@ -6,7 +6,7 @@ import pyNN.spiNNaker as sim
 from matplotlib import pyplot as plt
 
 # Neuron parameters
-global_params = {"min_delay": 1.0, "sim_time": 100.0}
+global_params = {"min_delay": 1.0, "sim_time": 1000.0}
 neuron_params = {"cm": 0.1, "tau_m": 0.1, "tau_refrac": 0.0, "tau_syn_E": 0.1, "tau_syn_I": 0.1, "v_rest": -65.0, "v_reset": -65.0, "v_thresh": -64.91}
 
 
@@ -25,7 +25,7 @@ def generate_spike_times(time_min, time_max, min_step, max_step):
 
 
 if __name__ == '__main__':
-    for reps in range(1):
+    for reps in range(10):
         # --- Simulation ---
         sim.setup(global_params["min_delay"])
 
@@ -36,18 +36,18 @@ if __name__ == '__main__':
         # - Spike injectors -
         start_time = [10]
         start_src = sim.Population(1, sim.SpikeSourceArray(spike_times=start_time))
-        #times = [generate_spike_times(10, global_params["sim_time"] - 10, 1, 50) for i in range(4)]
-        times = [[20, 50],
+        times = [generate_spike_times(10, global_params["sim_time"] - 10, 1, 50) for i in range(4)]
+        '''times = [[20, 50],
                  [30, 70],
                  [30, 70],
-                 [40, 60]]
+                 [40, 60]]'''
         A_pop = sim.Population(1, sim.SpikeSourceArray(spike_times=times[0]))
         B_pop = sim.Population(1, sim.SpikeSourceArray(spike_times=times[1]))
         C_pop = sim.Population(1, sim.SpikeSourceArray(spike_times=times[2]))
         D_pop = sim.Population(1, sim.SpikeSourceArray(spike_times=times[3]))
 
         # - Populations -
-        op_pop = sim.Population(9, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]})
+        op_pop = sim.Population(10, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]})
         input_data_array = [sim.Population(4, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}) for i in range(4)]
         latch_array = [sim.Population(4, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}) for i in range(3)]
         transition_array = [sim.Population(2, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}),
@@ -72,6 +72,10 @@ if __name__ == '__main__':
         sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [6]), sim.OneToOneConnector(), std_conn)  # T0
         sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [7]), sim.OneToOneConnector(), std_conn)  # T1
         sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [8]), sim.OneToOneConnector(), std_conn)  # T2
+
+        sim.Projection(sim.PopulationView(op_pop, [4]), sim.PopulationView(op_pop, [9]), sim.OneToOneConnector(), std_conn)  # OP Inh.
+        for i in range(1, 3):
+            sim.Projection(sim.PopulationView(op_pop, [9]), sim.PopulationView(latch_array[i], [1, 2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")  # OP Inh.
 
         # Input data
         sim.Projection(A_pop, sim.PopulationView(input_data_array[0], [0]), sim.OneToOneConnector(), std_conn)
@@ -100,7 +104,7 @@ if __name__ == '__main__':
             sim.Projection(sim.PopulationView(latch_array[i], [2]), sim.PopulationView(latch_array[i], [1]), sim.OneToOneConnector(), std_conn)
 
             # Negated output
-            sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(input_data_array[i], [3]), sim.OneToOneConnector(), std_conn)
+            sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(latch_array[i], [3]), sim.OneToOneConnector(), std_conn)
             sim.Projection(sim.PopulationView(latch_array[i], [0, 1, 2]), sim.PopulationView(latch_array[i], [3]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
 
         # Transition 0
@@ -118,7 +122,6 @@ if __name__ == '__main__':
         sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(transition_array[1], [1]), sim.OneToOneConnector(), std_conn)
         sim.Projection(sim.PopulationView(input_data_array[2], [2]), sim.PopulationView(transition_array[1], [1]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
         sim.Projection(sim.PopulationView(input_data_array[3], [2]), sim.PopulationView(transition_array[1], [1]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
-        sim.Projection(sim.PopulationView(op_pop, [7]), sim.PopulationView(latch_array[1], [1, 2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
 
         sim.Projection(sim.PopulationView(op_pop, [7]), sim.PopulationView(transition_array[1], [2]), sim.OneToOneConnector(), std_conn)
         sim.Projection(sim.PopulationView(latch_array[1], [3]), sim.PopulationView(transition_array[1], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
@@ -224,10 +227,6 @@ if __name__ == '__main__':
                     row += 1
                 lines.append(row - 0.5)
         else:
-            plt.plot(transition_data[0].spiketrains[1], [row] * len(transition_data[0].spiketrains[1]), '|', markersize=2, color='darkviolet')
-            row += 1
-            plt.plot(transition_data[1].spiketrains[2], [row] * len(transition_data[1].spiketrains[2]), '|', markersize=2, color='darkviolet')
-            row += 1
             plt.plot(transition_data[2].spiketrains[2], [row] * len(transition_data[2].spiketrains[2]), '|', markersize=2, color='darkviolet')
             row += 1
 
@@ -242,5 +241,5 @@ if __name__ == '__main__':
 
         plt.tight_layout()
         plt.savefig("results/" + filename + '.png', transparent=False, facecolor='white', edgecolor='black')
-        plt.show()
+        #plt.show()
         plt.close()
