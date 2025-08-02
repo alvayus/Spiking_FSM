@@ -211,12 +211,12 @@ if __name__ == '__main__':
                 plt.plot(latch_data[i].spiketrains[1], [row] * len(latch_data[i].spiketrains[1]), '|', markersize=2, color='darkgreen')
                 plt.plot(latch_data[i].spiketrains[2], [row] * len(latch_data[i].spiketrains[2]), '|', markersize=2, color='darkgreen')
                 row += 1
-        else:
+        '''else:
             for segment in latch_data:
                 n_tmp = len(segment.spiketrains)
                 for i in range(n_tmp):
                     plt.plot(segment.spiketrains[i], [row] * len(segment.spiketrains[i]), '|', markersize=2, color='darkgreen')
-                    row += 1
+                    row += 1'''
 
         # Transitions
         if show_transitions:
@@ -234,12 +234,25 @@ if __name__ == '__main__':
             plt.hlines(lines, xmin=0, xmax=global_params["sim_time"], linewidth=0.1, color="indigo")
         plt.xlim([0, global_params["sim_time"]])
         plt.ylim([-1, row])
-        #if reduce_states:
-        #    plt.yticks(range(0, 6), labels=["Start", "SG1", "SG2", "S0", "S1", "S2"])
+        if reduce_states:
+            plt.yticks(range(0, 10), labels=["Start", "A", "B", "C", "D", "OP", "S0", "S1", "S2", "Output"])
         plt.xlabel('Time (ms)')
         #plt.ylabel('Input')
 
         plt.tight_layout()
         plt.savefig("results/" + filename + '.png', transparent=False, facecolor='white', edgecolor='black')
+
+        if len(transition_data[2].spiketrains[2]) > 0:
+            first_pattern = int(transition_data[2].spiketrains[2][0])
+            window = 100
+            min_lim = first_pattern - (window / 2)
+            if min_lim < 0:
+                min_lim = 0
+            max_lim = first_pattern + (window / 2)
+            if max_lim > global_params["sim_time"]:
+                max_lim = global_params["sim_time"]
+            plt.xlim([min_lim, max_lim])
+            plt.savefig("results/" + filename + '_zoom.png', transparent=False, facecolor='white', edgecolor='black')
+
         #plt.show()
         plt.close()
