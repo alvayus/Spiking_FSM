@@ -73,7 +73,7 @@ if __name__ == '__main__':
         sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [7]), sim.OneToOneConnector(), std_conn)  # T1
         sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [8]), sim.OneToOneConnector(), std_conn)  # T2
 
-        sim.Projection(sim.PopulationView(op_pop, [4]), sim.PopulationView(op_pop, [9]), sim.OneToOneConnector(), std_conn)  # OP Inh.
+        sim.Projection(sim.PopulationView(op_pop, [4, 5]), sim.PopulationView(op_pop, [9]), sim.AllToAllConnector(), std_conn)  # OP Inh.
         for i in range(1, 3):
             sim.Projection(sim.PopulationView(op_pop, [9]), sim.PopulationView(latch_array[i], [0, 1, 2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")  # OP Inh.
 

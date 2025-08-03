@@ -26,9 +26,8 @@ if __name__ == '__main__':
         reduce_states = True
         show_lines = True
         show_transitions = False
-        start_time = 10.0
-        t_min = 300
-        t_max = 400
+        t_min = int(input("t_min: "))
+        t_max = int(input("t_max: "))
 
         if show_lines and reduce_states:
             plt.hlines(range(0, 50), t_min, t_max, linestyles='dotted', linewidth=0.25, color='indigo', alpha=0.3)
@@ -36,8 +35,6 @@ if __name__ == '__main__':
 
         # Inputs
         row = 0
-        plt.plot(start_time, [row], '|', markersize=2, color='blue')
-        row += 1
 
         colors = ["hotpink", "olivedrab", "chocolate", "indianred"]
         for i in range(len(times)):
@@ -78,7 +75,7 @@ if __name__ == '__main__':
         plt.xlim([t_min, t_max])
         plt.ylim([-1, row])
         if reduce_states:
-            plt.yticks(range(0, 10), labels=["Start", "A", "B", "C", "D", "OP", "S0", "S1", "S2", "Output"])
+            plt.yticks(range(0, 9), labels=["A", "B", "C", "D", "OP", "S0", "S1", "S2", "Output"])
         plt.xlabel('Time (ms)')
 
         plt.tight_layout()
