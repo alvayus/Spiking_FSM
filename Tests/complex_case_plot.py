@@ -27,8 +27,8 @@ if __name__ == '__main__':
         show_lines = True
         show_transitions = False
         start_time = 10.0
-        t_min = 200
-        t_max = 300
+        t_min = 300
+        t_max = 400
 
         if show_lines and reduce_states:
             plt.hlines(range(0, 50), t_min, t_max, linestyles='dotted', linewidth=0.25, color='indigo', alpha=0.3)

@@ -35,10 +35,10 @@ if __name__ == '__main__':
         # -- Network architecture --
         # - Spike injectors -
         #times = [generate_spike_times(10, global_params["sim_time"] - 10, 1, 5) for i in range(2)]
-        times = [[20, 21, 25, 30],
-                 [35, 40],
-                 [45, 50],
-                 [55, 60]]
+        times = [[20, 21, 22, 23, 25, 30, 70, 71, 75, 80],
+                 [35, 40, 71, 76],
+                 [45, 50, 71, 77],
+                 [55, 60, 76, 78]]
         A_pop = sim.Population(1, sim.SpikeSourceArray(spike_times=times[0]))
         B_pop = sim.Population(1, sim.SpikeSourceArray(spike_times=times[1]))
         C_pop = sim.Population(1, sim.SpikeSourceArray(spike_times=times[2]))
@@ -46,7 +46,7 @@ if __name__ == '__main__':
 
         # - Populations -
         delayer_straight_array = [sim.Population(2, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}) for i in range(4)]
-        delayer_alt_array = [sim.Population(4, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}) for i in range(4)]
+        delayer_alt_array = [sim.Population(5, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}) for i in range(4)]
 
         # - Connections -
         # Straight path
@@ -56,14 +56,11 @@ if __name__ == '__main__':
         sim.Projection(D_pop, sim.PopulationView(delayer_straight_array[3], [0]), sim.OneToOneConnector(), std_conn)
 
         for i in range(4):
-            # Autoinhibition
-            sim.Projection(sim.PopulationView(delayer_straight_array[i], [0]), sim.PopulationView(delayer_straight_array[i], [0]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
-
             # Straight output
             sim.Projection(sim.PopulationView(delayer_straight_array[i], [0]), sim.PopulationView(delayer_straight_array[i], [1]), sim.OneToOneConnector(), std_conn)
 
             # Alternative path inhibition
-            sim.Projection(sim.PopulationView(delayer_straight_array[i], [0]), sim.PopulationView(delayer_alt_array[i], [1, 2, 3]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
+            sim.Projection(sim.PopulationView(delayer_straight_array[i], [0]), sim.PopulationView(delayer_alt_array[i], [1, 2, 3, 4]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
 
             # Inhibiting other inputs
             for j in range(4):
@@ -77,26 +74,31 @@ if __name__ == '__main__':
         sim.Projection(D_pop, sim.PopulationView(delayer_alt_array[3], [0]), sim.OneToOneConnector(), std_conn)
 
         for i in range(4):
-            # Interconnections
+            # Neuron 0
+            sim.Projection(sim.PopulationView(delayer_alt_array[i], [0]), sim.PopulationView(delayer_straight_array[i], [0]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
             sim.Projection(sim.PopulationView(delayer_alt_array[i], [0]), sim.PopulationView(delayer_alt_array[i], [1]), sim.OneToOneConnector(), std_conn)
-            sim.Projection(sim.PopulationView(delayer_alt_array[i], [1, 2]), sim.PopulationView(delayer_alt_array[i], [0]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
+            sim.Projection(sim.PopulationView(delayer_alt_array[i], [0]), sim.PopulationView(delayer_alt_array[i], [4]), sim.OneToOneConnector(), std_conn)
 
-            # Recurrence
-            sim.Projection(sim.PopulationView(delayer_alt_array[i], [0]), sim.PopulationView(delayer_alt_array[i], [0]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
+            # Neuron 1
             sim.Projection(sim.PopulationView(delayer_alt_array[i], [1]), sim.PopulationView(delayer_alt_array[i], [2]), sim.OneToOneConnector(), std_conn)
-            sim.Projection(sim.PopulationView(delayer_alt_array[i], [2]), sim.PopulationView(delayer_alt_array[i], [1]), sim.OneToOneConnector(), std_conn)
 
-            # Delay neuron
-            sim.Projection(sim.PopulationView(delayer_alt_array[i], [0, 1, 2]), sim.PopulationView(delayer_alt_array[i], [3]), sim.AllToAllConnector(), std_conn)
-            sim.Projection(sim.PopulationView(delayer_alt_array[i], [3]), sim.PopulationView(delayer_alt_array[i], [1, 2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
+            # Neuron 2
+            sim.Projection(sim.PopulationView(delayer_alt_array[i], [2]), sim.PopulationView(delayer_alt_array[i], [3]), sim.OneToOneConnector(), std_conn)
+            sim.Projection(sim.PopulationView(delayer_alt_array[i], [2]), sim.PopulationView(delayer_alt_array[i], [4]), sim.OneToOneConnector(), std_conn)
+
+            # Neuron 3
+            sim.Projection(sim.PopulationView(delayer_alt_array[i], [3]), sim.PopulationView(delayer_alt_array[i], [2]), sim.OneToOneConnector(), std_conn)
+            sim.Projection(sim.PopulationView(delayer_alt_array[i], [3]), sim.PopulationView(delayer_alt_array[i], [4]), sim.OneToOneConnector(), std_conn)
+
+            # Neuron 4
+            sim.Projection(sim.PopulationView(delayer_alt_array[i], [4]), sim.PopulationView(delayer_alt_array[i], [1, 2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
+            sim.Projection(sim.PopulationView(delayer_alt_array[i], [4]), sim.PopulationView(delayer_straight_array[i], [1]), sim.OneToOneConnector(), std_conn)
+            sim.Projection(sim.PopulationView(delayer_alt_array[i], [4]), sim.PopulationView(delayer_alt_array[i], [4]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
 
             # Inhibiting other inputs
             for j in range(4):
                 if j != i:
                     sim.Projection(sim.PopulationView(delayer_alt_array[i], [3]), sim.PopulationView(delayer_alt_array[j], [3]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
-
-            # Output neuron
-            sim.Projection(sim.PopulationView(delayer_alt_array[i], [3]), sim.PopulationView(delayer_straight_array[i], [1]), sim.OneToOneConnector(), std_conn)
 
         # -- Recording --
         for i in range(len(delayer_straight_array)):
