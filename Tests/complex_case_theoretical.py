@@ -16,7 +16,7 @@ def evaluate_fsm(A, B, C, D, T_min, T_max):
     T1_times = []
     T2_times = []
 
-    S0_times = list(range(T_min, T_max + 1))
+    S0_times = list(range(10, T_max + 1))
     S1_times = set()
     S2_times = set()
 
