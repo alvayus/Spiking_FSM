@@ -47,11 +47,11 @@ if __name__ == '__main__':
         D_pop = sim.Population(1, sim.SpikeSourceArray(spike_times=times[3]))
 
         # - Populations -
-        op_pop = sim.Population(10, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]})
+        op_pop = sim.Population(7, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]})
         input_data_array = [sim.Population(4, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}) for i in range(4)]
         latch_array = [sim.Population(4, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}) for i in range(3)]
-        transition_array = [sim.Population(2, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}),
-                            sim.Population(3, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}),
+        transition_array = [sim.Population(3, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}),
+                            sim.Population(4, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]}),
                             sim.Population(3, sim.IF_curr_exp(**neuron_params), initial_values={'v': neuron_params["v_rest"]})]
 
         # - Connections -
@@ -69,13 +69,15 @@ if __name__ == '__main__':
 
         sim.Projection(sim.PopulationView(op_pop, [0, 1, 2, 3]), sim.PopulationView(op_pop, [4]), sim.AllToAllConnector(), std_conn)
         sim.Projection(sim.PopulationView(op_pop, [4]), sim.PopulationView(op_pop, [5]), sim.OneToOneConnector(), std_conn)
-        sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [6]), sim.OneToOneConnector(), std_conn)  # T0
-        sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [7]), sim.OneToOneConnector(), std_conn)  # T1
-        sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [8]), sim.OneToOneConnector(), std_conn)  # T2
+        sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [6]), sim.OneToOneConnector(), std_conn)
 
-        sim.Projection(sim.PopulationView(op_pop, [4, 5]), sim.PopulationView(op_pop, [9]), sim.AllToAllConnector(), std_conn)  # OP Inh.
+        # ... Disabling transitions after a spike is received, until new state is calculated ...
+        sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(transition_array[0], [1]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
+        sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(transition_array[1], [2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
+
+        # ... Resetting latches before setting them ...
         for i in range(1, 3):
-            sim.Projection(sim.PopulationView(op_pop, [9]), sim.PopulationView(latch_array[i], [0, 1, 2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")  # OP Inh.
+            sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(latch_array[i], [0, 1, 2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
 
         # Input data
         sim.Projection(A_pop, sim.PopulationView(input_data_array[0], [0]), sim.OneToOneConnector(), std_conn)
@@ -96,10 +98,8 @@ if __name__ == '__main__':
         for i in range(3):
             # Interconnections
             sim.Projection(sim.PopulationView(latch_array[i], [0]), sim.PopulationView(latch_array[i], [1]), sim.OneToOneConnector(), std_conn)
-            sim.Projection(sim.PopulationView(latch_array[i], [1, 2]), sim.PopulationView(latch_array[i], [0]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")
 
             # Recurrence
-            sim.Projection(sim.PopulationView(latch_array[i], [0]), sim.PopulationView(latch_array[i], [0]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
             sim.Projection(sim.PopulationView(latch_array[i], [1]), sim.PopulationView(latch_array[i], [2]), sim.OneToOneConnector(), std_conn)
             sim.Projection(sim.PopulationView(latch_array[i], [2]), sim.PopulationView(latch_array[i], [1]), sim.OneToOneConnector(), std_conn)
 
@@ -116,6 +116,13 @@ if __name__ == '__main__':
 
         sim.Projection(sim.PopulationView(transition_array[0], [1]), sim.PopulationView(latch_array[1], [0]), sim.OneToOneConnector(), std_conn)
 
+        # T0 *
+        sim.Projection(sim.PopulationView(op_pop, [6]), sim.PopulationView(transition_array[0], [2]), sim.OneToOneConnector(), std_conn)
+        sim.Projection(sim.PopulationView(latch_array[0], [3]), sim.PopulationView(transition_array[0], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
+        sim.Projection(sim.PopulationView(transition_array[0], [0]), sim.PopulationView(transition_array[0], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
+
+        sim.Projection(sim.PopulationView(transition_array[0], [2]), sim.PopulationView(latch_array[1], [3]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
+
         # Transition 1
         sim.Projection(sim.PopulationView(input_data_array[1], [2]), sim.PopulationView(transition_array[1], [0]), sim.OneToOneConnector(), std_conn)
 
@@ -123,19 +130,27 @@ if __name__ == '__main__':
         sim.Projection(sim.PopulationView(input_data_array[2], [2]), sim.PopulationView(transition_array[1], [1]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
         sim.Projection(sim.PopulationView(input_data_array[3], [2]), sim.PopulationView(transition_array[1], [1]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
 
-        sim.Projection(sim.PopulationView(op_pop, [7]), sim.PopulationView(transition_array[1], [2]), sim.OneToOneConnector(), std_conn)
+        sim.Projection(sim.PopulationView(op_pop, [6]), sim.PopulationView(transition_array[1], [2]), sim.OneToOneConnector(), std_conn)
         sim.Projection(sim.PopulationView(latch_array[1], [3]), sim.PopulationView(transition_array[1], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
         sim.Projection(sim.PopulationView(transition_array[1], [0]), sim.PopulationView(transition_array[1], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
         sim.Projection(sim.PopulationView(transition_array[1], [1]), sim.PopulationView(transition_array[1], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
 
         sim.Projection(sim.PopulationView(transition_array[1], [2]), sim.PopulationView(latch_array[2], [0]), sim.OneToOneConnector(), std_conn)
 
+        # T1 *
+        sim.Projection(sim.PopulationView(op_pop, [6]), sim.PopulationView(transition_array[1], [3]), sim.OneToOneConnector(), std_conn)
+        sim.Projection(sim.PopulationView(latch_array[1], [3]), sim.PopulationView(transition_array[1], [3]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
+        sim.Projection(sim.PopulationView(transition_array[1], [0]), sim.PopulationView(transition_array[1], [3]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
+        sim.Projection(sim.PopulationView(transition_array[1], [1]), sim.PopulationView(transition_array[1], [3]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
+
+        sim.Projection(sim.PopulationView(transition_array[1], [3]), sim.PopulationView(latch_array[2], [3]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
+
         # Transition 2
         sim.Projection(sim.PopulationView(input_data_array[1], [3]), sim.PopulationView(transition_array[2], [0]), sim.OneToOneConnector(), std_conn)
 
         sim.Projection(sim.PopulationView(input_data_array[2], [3]), sim.PopulationView(transition_array[2], [1]), sim.OneToOneConnector(), std_conn)
 
-        sim.Projection(sim.PopulationView(op_pop, [8]), sim.PopulationView(transition_array[2], [2]), sim.OneToOneConnector(), std_conn)
+        sim.Projection(sim.PopulationView(op_pop, [6]), sim.PopulationView(transition_array[2], [2]), sim.OneToOneConnector(), std_conn)
         sim.Projection(sim.PopulationView(latch_array[2], [3]), sim.PopulationView(transition_array[2], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
         sim.Projection(sim.PopulationView(transition_array[2], [0]), sim.PopulationView(transition_array[2], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
         sim.Projection(sim.PopulationView(transition_array[2], [1]), sim.PopulationView(transition_array[2], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
