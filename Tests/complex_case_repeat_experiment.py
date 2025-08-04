@@ -79,7 +79,7 @@ if __name__ == '__main__':
         sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [7]), sim.OneToOneConnector(), std_conn)  # T1
         sim.Projection(sim.PopulationView(op_pop, [5]), sim.PopulationView(op_pop, [8]), sim.OneToOneConnector(), std_conn)  # T2
 
-        sim.Projection(sim.PopulationView(op_pop, [4, 5]), sim.PopulationView(op_pop, [9]), sim.AllToAllConnector(), std_conn)  # OP Inh.
+        sim.Projection(sim.PopulationView(op_pop, [4]), sim.PopulationView(op_pop, [9]), sim.AllToAllConnector(), std_conn)  # OP Inh.
         for i in range(1, 3):
             sim.Projection(sim.PopulationView(op_pop, [9]), sim.PopulationView(latch_array[i], [0, 1, 2]), sim.AllToAllConnector(), std_conn, receptor_type="inhibitory")  # OP Inh.
 
@@ -121,6 +121,7 @@ if __name__ == '__main__':
         sim.Projection(sim.PopulationView(transition_array[0], [0]), sim.PopulationView(transition_array[0], [1]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
 
         sim.Projection(sim.PopulationView(transition_array[0], [1]), sim.PopulationView(latch_array[1], [0]), sim.OneToOneConnector(), std_conn)
+        sim.Projection(sim.PopulationView(transition_array[0], [1]), sim.PopulationView(latch_array[1], [3]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
 
         # Transition 1
         sim.Projection(sim.PopulationView(input_data_array[1], [2]), sim.PopulationView(transition_array[1], [0]), sim.OneToOneConnector(), std_conn)
@@ -135,6 +136,7 @@ if __name__ == '__main__':
         sim.Projection(sim.PopulationView(transition_array[1], [1]), sim.PopulationView(transition_array[1], [2]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
 
         sim.Projection(sim.PopulationView(transition_array[1], [2]), sim.PopulationView(latch_array[2], [0]), sim.OneToOneConnector(), std_conn)
+        sim.Projection(sim.PopulationView(transition_array[1], [2]), sim.PopulationView(latch_array[2], [3]), sim.OneToOneConnector(), std_conn, receptor_type="inhibitory")
 
         # Transition 2
         sim.Projection(sim.PopulationView(input_data_array[1], [3]), sim.PopulationView(transition_array[2], [0]), sim.OneToOneConnector(), std_conn)
@@ -228,7 +230,7 @@ if __name__ == '__main__':
         plt.xlim([0, global_params["sim_time"]])
         plt.ylim([-1, row])
         if reduce_states:
-            plt.yticks(range(0, 10), labels=["Start", "A", "B", "C", "D", "OP", "S0", "S1", "S2", "Output"])
+            plt.yticks(range(0, 9), labels=["A", "B", "C", "D", "OP", "S0", "S1", "S2", "Output"])
         plt.xlabel('Time (ms)')
         #plt.ylabel('Input')
 
