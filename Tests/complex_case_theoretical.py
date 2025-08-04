@@ -80,7 +80,7 @@ if __name__ == '__main__':
         # --- Plot ---
         plt.rcParams['figure.dpi'] = 400
         plt.rcParams['font.size'] = '4'
-        plt.rcParams["figure.figsize"] = (4, 1.0)
+        plt.rcParams["figure.figsize"] = (4, 1.2)
 
         show_lines = True
         t_min = int(input("t_min: "))
