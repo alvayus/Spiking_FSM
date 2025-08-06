@@ -202,20 +202,20 @@ if __name__ == '__main__':
         # Inputs
         row = 0
 
-        colors = ["hotpink", "olivedrab", "chocolate", "indianred"]
+        #colors = ["hotpink", "olivedrab", "chocolate", "indianred"]
         for i in range(len(times)):
-            plt.plot(times[i], [row] * len(times[i]), '|', markersize=2, color=colors[i])
+            plt.plot(times[i], [row] * len(times[i]), '|', markersize=2, color=[108/255, 142/255, 191/255])
             row += 1
-        plt.plot(op_data.spiketrains[4], [row] * len(op_data.spiketrains[4]), '|', markersize=2, color="goldenrod")
+        plt.plot(op_data.spiketrains[4], [row] * len(op_data.spiketrains[4]), '|', markersize=2, color=[215/255, 155/255, 0/255])
         lines.append(row + 0.5)
         row += 1
 
         # Latches
         if reduce_states:
             for i in range(len(latch_data)):
-                plt.plot(latch_data[i].spiketrains[0], [row] * len(latch_data[i].spiketrains[0]), '|', markersize=2, color='darkgreen')
-                plt.plot(latch_data[i].spiketrains[1], [row] * len(latch_data[i].spiketrains[1]), '|', markersize=2, color='darkgreen')
-                plt.plot(latch_data[i].spiketrains[2], [row] * len(latch_data[i].spiketrains[2]), '|', markersize=2, color='darkgreen')
+                plt.plot(latch_data[i].spiketrains[0], [row] * len(latch_data[i].spiketrains[0]), '|', markersize=2, color=[130/255, 179/255, 102/255])
+                plt.plot(latch_data[i].spiketrains[1], [row] * len(latch_data[i].spiketrains[1]), '|', markersize=2, color=[130/255, 179/255, 102/255])
+                plt.plot(latch_data[i].spiketrains[2], [row] * len(latch_data[i].spiketrains[2]), '|', markersize=2, color=[130/255, 179/255, 102/255])
                 row += 1
         '''else:
             for segment in latch_data:
@@ -229,11 +229,11 @@ if __name__ == '__main__':
             for segment in transition_data:
                 n_tmp = len(segment.spiketrains)
                 for i in range(n_tmp):
-                    plt.plot(segment.spiketrains[i], [row] * len(segment.spiketrains[i]), '|', markersize=2, color='darkviolet')
+                    plt.plot(segment.spiketrains[i], [row] * len(segment.spiketrains[i]), '|', markersize=2, color=[150/255, 115/255, 166/255])
                     row += 1
                 lines.append(row - 0.5)
         else:
-            plt.plot(transition_data[2].spiketrains[2], [row] * len(transition_data[2].spiketrains[2]), '|', markersize=2, color='darkviolet')
+            plt.plot(transition_data[2].spiketrains[2], [row] * len(transition_data[2].spiketrains[2]), '|', markersize=2, color=[150/255, 115/255, 166/255])
             row += 1
 
         if show_lines:

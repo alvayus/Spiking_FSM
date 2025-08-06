@@ -102,23 +102,23 @@ if __name__ == '__main__':
         row = 0
 
         for i in range(len(times)):
-            plt.plot(times[i], [row] * len(times[i]), '|', markersize=2, color="goldenrod")
+            plt.plot(times[i], [row] * len(times[i]), '|', markersize=2, color=[108/255, 142/255, 191/255])
             row += 1
-        for i in range(len(times)):
-            plt.plot(times[i], [row] * len(times[i]), '|', markersize=2, color="goldenrod")
+        for i in range(len(times)):  # OP
+            plt.plot(times[i], [row] * len(times[i]), '|', markersize=2, color=[215/255, 155/255, 0/255])
         lines.append(row + 0.5)
         row += 1
 
         # Latches
-        plt.plot(S0_times, [row] * len(S0_times), '|', markersize=2, color="goldenrod")
+        plt.plot(S0_times, [row] * len(S0_times), '|', markersize=2, color=[130/255, 179/255, 102/255])
         row += 1
-        plt.plot(S1_times, [row] * len(S1_times), '|', markersize=2, color="goldenrod")
+        plt.plot(S1_times, [row] * len(S1_times), '|', markersize=2, color=[130/255, 179/255, 102/255])
         row += 1
-        plt.plot(S2_times, [row] * len(S2_times), '|', markersize=2, color="goldenrod")
+        plt.plot(S2_times, [row] * len(S2_times), '|', markersize=2, color=[130/255, 179/255, 102/255])
         row += 1
 
         # Transitions
-        plt.plot(T2_times, [row] * len(T2_times), '|', markersize=2, color="goldenrod")
+        plt.plot(T2_times, [row] * len(T2_times), '|', markersize=2, color=[150/255, 115/255, 166/255])
         row += 1
 
         if show_lines:
