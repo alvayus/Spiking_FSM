@@ -21,7 +21,7 @@ if __name__ == '__main__':
         # --- Plot ---
         plt.rcParams['figure.dpi'] = 400
         plt.rcParams['font.size'] = '4'
-        plt.rcParams["figure.figsize"] = (4, 1.0)
+        plt.rcParams["figure.figsize"] = (4, 0.8)
 
         reduce_states = True
         show_lines = True
