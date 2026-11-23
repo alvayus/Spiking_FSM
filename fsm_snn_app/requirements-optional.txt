@@ -1,0 +1,6 @@
+# The application itself only needs the Python standard library (>= 3.9).
+# Optional:
+matplotlib        # raster.png in the results folder
+PyNN>=0.12        # PyNN back-ends
+sPyNNaker         # SpiNNaker (pyNN.spiNNaker)
+# nest-simulator / brian2   # other PyNN back-ends
