@@ -84,6 +84,7 @@ const COLX = { src: 0, op: 160, gate: 330, notst: 500, term: 690, latch: 920, ou
 // parallel: AND gates, conditions, state neurons (and a corridor for their synapses)
 const COLP = { src: 0, op: 160, gate: 330, term: 500, cond: 690, state: 900, out: 1100 };
 const STATE_LANE = 7;              // spacing of the vertical runs between state neurons
+const ROW_P = 78;                  // parallel: vertical spacing (room for the labels and the clock bus)
 const LATCH_DX = 84;               // ring neurons at COLX.latch, set neuron N1 to their right
 const TERM_DY = 64;                // vertical spacing of stacked neurons
 const CLEAR = NR + 6;              // clearance a wire keeps from a neuron
@@ -124,7 +125,7 @@ function netLayout(net) {
   const mid = H / 2;
   const stack = (list, x, dy) => list.forEach((n, k) => Object.assign(n, { x, y: mid + (k - (list.length - 1) / 2) * dy }));
   stack(all.filter((n) => n.src), X.src, 70);
-  stack(all.filter((n) => n.kind === "op" || n.kind === "clock"), X.op, 70);
+  stack(all.filter((n) => n.kind === "op"), X.op, 70);
   stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input")), X.gate, TERM_DY);
   stack(all.filter((n) => n.kind === "output"), X.out, 70);
   for (const n of all) {
@@ -137,6 +138,7 @@ function netLayout(net) {
     const e = { i, from: (pre[0] === "src" ? "s" : "n") + pre[1], to: "n" + post, rec, delay };
     const P = nodes[e.from], Q = nodes[e.to];
     if (parallel && P.major === X.state && Q.major === X.state) e.type = "stateBus";
+    else if (P.kind === "clock" && Q.kind === "no_trans") e.type = "clockBus";
     else if (e.from === e.to) e.type = "self";
     else if (P.kind === "latch" && Q.kind === "not_state") { e.type = P.j === 1 ? "arcTop" : "arcBottom"; e.band = bands[P.sid]; }
     else if (P.kind === "latch" && Q.kind === "latch" && P.sid === Q.sid) e.type = "local";
@@ -145,7 +147,10 @@ function netLayout(net) {
     return e;
   });
   routeWires(edges.filter((e) => e.type === "wire"), nodes, all);
-  if (parallel) routeStateBus(edges.filter((e) => e.type === "stateBus"), nodes, X);
+  if (parallel) {
+    routeStateBus(edges.filter((e) => e.type === "stateBus"), nodes, X);
+    routeClockBus(edges.filter((e) => e.type === "clockBus"), nodes, X);
+  }
 
   const xs = all.map((n) => n.x), ys = all.map((n) => n.y);
   const box = { x0: Math.min(...xs) - 50, y0: Math.min(0, ...ys) - 50, x1: Math.max(...xs) + 90, y1: Math.max(H, ...ys) + 40 };
@@ -204,18 +209,20 @@ function netPlaceParallel(net, nodes, all) {
     const extra = all.filter((n) => n.kind === "enter" && !stateKeys.has(n.key) && n.from === sid);   // self-loop detectors
     const sts = mine.concat(extra);
     const rows = Math.max(terms.length, cond.length, sts.length, 2);
-    const h = rows * TERM_DY + 70, cy = y + h / 2;
+    const h = rows * ROW_P + 70, cy = y + h / 2;
     bands[sid] = { top: y, bottom: y + h, cy };
-    const col = (list, x) => list.forEach((n, k) => Object.assign(n, { x, y: cy + (k - (list.length - 1) / 2) * TERM_DY, major: x }));
+    const col = (list, x) => list.forEach((n, k) => Object.assign(n, { x, y: cy + (k - (list.length - 1) / 2) * ROW_P, major: x }));
     col(terms, X.term); col(cond, X.cond); col(sts, X.state);
     const ys = sts.map((n) => n.y);
     groups.push({ x0: X.state - 46, y0: Math.min(...ys) - 52, x1: X.state + 46, y1: Math.max(...ys) + 34, label: st.name, initial: st.initial, sid });
     y += h;
   }
+  // clock: a ring above the conditions column, whose bus runs down on its left
+  all.filter((n) => n.kind === "clock").forEach((n, k) => Object.assign(n, { x: X.cond, y: -150 + 76 * k, major: X.cond, j: k + 1 }));
   const headerCols = [
-    ["src", "Inputs", (n) => n.src], ["op", "OR · clock", (n) => n.kind === "op"],
+    ["src", "Inputs", (n) => n.src], ["op", "OR", (n) => n.kind === "op"],
     ["gate", "Delay · NOT inputs", (n) => n.kind === "delay" || n.kind === "not_input"],
-    ["term", "AND (terms)", (n) => n.kind === "term"], ["cond", "Conditions", (n) => ["no_trans", "leave", "no_stay"].includes(n.kind)],
+    ["term", "AND (terms)", (n) => n.kind === "term"], ["cond", "Clock · conditions", (n) => ["no_trans", "leave", "no_stay"].includes(n.kind)],
     ["state", "States", (n) => n.kind === "hold"], ["out", "Output", (n) => n.kind === "output"],
   ];
   return { X, bands, groups, H: Math.max(y, 200), headerCols };
@@ -234,6 +241,18 @@ function routeStateBus(edges, nodes, X) {
     const y1 = P.y + NR + 8, y2 = Q.y + dy;
     e.points = [[P.x, P.y + NR + 0.5], [P.x, y1], [x, y1], [x, y2], [Q.x + side + GAP, y2]];
     e.trunk = { x, from: y1 }; e.branch = y2;
+  }
+}
+
+// Parallel: the clock drives every "transition does not fire" gate. Both clock neurons
+// share one trunk on the left of the conditions column; every gate gets one branch,
+// into its top (its label is below, the terms arrive on its left).
+function routeClockBus(edges, nodes, X) {
+  const x = X.cond - NR - 24;
+  for (const e of edges) {
+    const P = nodes[e.from], Q = nodes[e.to], y2 = Q.y - NR - 8;
+    e.points = [[P.x - NR - 0.5, P.y], [x, P.y], [x, y2], [Q.x, y2], [Q.x, Q.y - NR - GAP]];
+    e.trunk = { x, from: P.y }; e.branch = y2;
   }
 }
 
@@ -333,7 +352,7 @@ function netEdgePath(e, D) {
     const sg = e.type === "arcTop" ? -1 : 1, yy = sg < 0 ? e.band.top + 18 : e.band.bottom - 18;
     return roundedPath([[P.x, P.y + sg * (NR + 0.5)], [P.x, yy], [Q.x, yy], [Q.x, Q.y + sg * (NR + GAP)]], 10);
   }
-  if (e.type === "stateBus") return roundedPath(e.points, 5);
+  if (e.type === "stateBus" || e.type === "clockBus") return roundedPath(e.points, 5);
   return roundedPath(latchRoute(e, P, Q), 5);
 }
 
@@ -486,6 +505,8 @@ function drawNetwork() {
     const at = (k) => ed(`${id}#${k}`, defs[k]);
     const lbl = n.kind === "term"          // synapses arrive from the left and leave to the right: label above
       ? lines.map((l, k) => `<text class="nl${k ? " sub" : ""}" y="${k ? -NR - 5 : -NR - 17}" ${at(k)}>${esc(l.length > 26 ? l.slice(0, 25) + "…" : l)}</text>`).join("")
+      : n.kind === "clock"                 // its ring runs between the two neurons: label on the right
+      ? `<text class="nl" x="${NR + 6}" y="4" style="text-anchor:start" ${at(0)}>${esc(lines[0])}</text>`
       : n.kind === "not_state"             // arcs arrive above and below: label on the upper left
       ? `<text class="nl" x="${-NR - 4}" y="${-NR + 2}" style="text-anchor:end" ${at(0)}>${esc(lines[0])}</text>`
       : lines.map((l, k) => `<text class="nl${k ? " sub" : ""}" y="${NR + 13 + 12 * k}" ${at(k)}>${esc(l)}</text>`).join("");
