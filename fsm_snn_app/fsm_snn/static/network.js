@@ -58,7 +58,7 @@ const netHidden = new Set();       // hidden neuron kinds
 const NR = 15;                     // neuron radius
 const GAP = 1.5;                   // space between the end of a synapse and the neuron it reaches
 const COLX = { src: 0, op: 160, gate: 330, notst: 500, term: 690, latch: 920, out: 1150 };
-const BYPASS_LANE = 9;             // spacing of the bypass trunks (one per AND gate)
+const BYPASS_LANE = 7;             // spacing of the bypass trunks (one per AND gate and type)
 const LATCH_DX = 84;               // ring neurons at COLX.latch, set neuron N1 to their right
 const TERM_DY = 64;                // vertical spacing of stacked neurons
 const CLEAR = NR + 6;              // clearance a wire keeps from a neuron
@@ -80,8 +80,8 @@ function netLayout(net) {
   // their vertical runs (one lane each)
   const X = { ...COLX };
   const termSet = new Set(net.terms.map((t) => t[2]));
-  // one lane per AND gate that has bypasses towards other AND gates
-  const nTrunks = new Set(net.conns.filter((c) => c[0][0] === "n" && termSet.has(c[0][1]) && termSet.has(c[1])).map((c) => c[0][1])).size;
+  // one lane per AND gate and synapse type with bypasses towards other AND gates
+  const nTrunks = new Set(net.conns.filter((c) => c[0][0] === "n" && termSet.has(c[0][1]) && termSet.has(c[1])).map((c) => c[0][1] + c[2])).size;
   const corridor = nTrunks ? 26 + BYPASS_LANE * nTrunks : 0;
   X.latch += corridor; X.out += corridor;
   const nodes = {};
@@ -172,13 +172,13 @@ function routeWires(wires, nodes, all) {
   const chan = (g) => [majors[g] + NR + 18, majors[g + 1] - NR - 18];
 
   // ports: each wire gets its own height on the side of the neuron
-  const spread = (list, keyY, setKey) => {
-    const n = list.length, half = Math.min(NR - 4, 4.5 * (n - 1));
+  const spread = (list, keyY, setKey, step = 4.5) => {
+    const n = list.length, half = Math.min(NR - 4, step * (n - 1));
     list.sort((a, b) => keyY(a) - keyY(b));
     list.forEach((e, k) => (e[setKey] = n === 1 ? 0 : -half + 2 * half * k / (n - 1)));
   };
   const group = (end) => { const m = {}; for (const e of wires) (m[e[end]] = m[e[end]] || []).push(e); return m; };
-  for (const l of Object.values(group("from"))) spread(l, (e) => nodes[e.to].y + nodes[e.to].x * 1e-4, "dyOut");
+  for (const l of Object.values(group("from"))) spread(l, (e) => nodes[e.to].y + nodes[e.to].x * 1e-4, "dyOut", 3);
   for (const l of Object.values(group("to"))) spread(l, (e) => nodes[e.from].y - nodes[e.from].x * 1e-4, "dyIn");
 
   const blocked = (xa, xb, y, P, Q) => {
@@ -224,83 +224,93 @@ function routeWires(wires, nodes, all) {
   }
 }
 
-// Bypasses (parallel implementation), drawn like a bus: every AND gate has one trunk
-// for its bypasses towards AND gates and one towards NOT gates, and each synapse is a
-// branch of it (a dot marks where branches split off). Right angles only.
-// * towards AND gates: from the bottom of the gate, right to the trunk (its own lane in
-//   the corridor on the right of the AND column), along it, and left into the lower right
-//   side of the target (its label is above, the other synapses use the left side and the
-//   middle of the right side);
-// * towards NOT(state): from the bottom of the gate, left to the trunk (its own lane next
-//   to the NOT column), along it, and up into the bottom of the NOT gate.
+// Bypasses (parallel implementation), drawn like a bus, with right angles only:
+// * colour by type (excitatory blue, inhibitory orange) and one trunk per type for every
+//   AND gate, so a trunk never mixes the two;
+// * the branches reaching a neuron merge before it, so every neuron gets at most one
+//   excitatory head and one inhibitory head, each on its own side:
+//     AND gate:   excitatory from the right (below the outgoing synapses), inhibitory from
+//                 below (right half), "no spike at t+1" from below (left half); the two
+//                 trunks leave side by side from the middle of the bottom;
+//     NOT(state): excitatory from below (right half; the latch arrives in the middle),
+//                 inhibitory from the right (above the outgoing synapses);
+// * a dot marks where branches split off or join.
+const BYP = { andExcDy: 11, andInhDx: 8, andOutDx: 0, andNoSpikeDx: -8, notExcDx: 8, notInhDy: -11 };
 function routeBypasses(edges, nodes, X) {
   const yOf = (k) => nodes[k].y;
-  const below = (n, dx) => n.y + Math.sqrt(Math.max(0, NR * NR - dx * dx));
-  const byFrom = (list) => {
-    const m = new Map();
-    for (const e of list) { if (!m.has(e.from)) m.set(e.from, []); m.get(e.from).push(e); }
-    return [...m.entries()].sort((p, q) => yOf(p[0]) - yOf(q[0]));
-  };
-  const spreadTo = (list, set, lo, hi, order) => {
-    const m = {};
-    for (const e of list) (m[e.to] = m[e.to] || []).push(e);
-    for (const l of Object.values(m)) {
-      l.sort(order);
-      l.forEach((e, k) => (e[set] = l.length === 1 ? (lo + hi) / 2 : lo + (hi - lo) * k / (l.length - 1)));
-    }
-  };
+  const onCircle = (d) => Math.sqrt(Math.max(0, NR * NR - d * d));
   const tt = edges.filter((e) => e.type === "bypassTerm"), tb = edges.filter((e) => e.type === "bypassBack");
-  // ---- "no spike at t+1": right, then up along the left of the AND column, into the lower
-  // left side of every AND gate
+  // lanes: one per (source gate, type), sources from top to bottom
+  const lanesOf = (list) => {
+    const keys = [...new Set(list.map((e) => e.from + "|" + e.rec))]
+      .sort((p, q) => yOf(p.split("|")[0]) - yOf(q.split("|")[0]) || (p.endsWith("exc") ? -1 : 1));
+    return Object.fromEntries(keys.map((k, i) => [k, i]));
+  };
+  // ---- AND -> AND (corridor on the right of the AND column)
+  const ttLane = lanesOf(tt);
+  for (const e of tt) {
+    const P = nodes[e.from], Q = nodes[e.to], x = X.term + NR + 18 + BYPASS_LANE * ttLane[e.from + "|" + e.rec];
+    const dx = BYP.andOutDx + (e.rec === "exc" ? 2.5 : -2.5), sx = P.x + dx, y1 = P.y + NR + 16 + (e.rec === "inh" ? 4 : 0);
+    const start = [[sx, P.y + onCircle(dx)], [sx, y1], [x, y1]];
+    if (e.rec === "exc") {                     // into the right side, below the outgoing synapses
+      const y2 = Q.y + BYP.andExcDy;
+      e.points = start.concat([[x, y2], [Q.x + onCircle(BYP.andExcDy) + GAP, y2]]);
+      e.merge = { x: Q.x + NR + 8, y: y2 };
+    } else {                                   // into the bottom, right half
+      const y2 = Q.y + NR + 8, xe = Q.x + BYP.andInhDx;
+      e.points = start.concat([[x, y2], [xe, y2], [xe, Q.y + onCircle(BYP.andInhDx) + GAP]]);
+      e.merge = { x: xe + 8, y: y2 };
+    }
+    e.trunk = { x, from: y1 }; e.branch = e.points[3][1];
+  }
+  // ---- AND -> NOT(state) (lanes on the right of the NOT column)
+  const tbLane = lanesOf(tb);
+  for (const e of tb) {
+    const P = nodes[e.from], Q = nodes[e.to], x = X.notst + NR + 16 + 6 * tbLane[e.from + "|" + e.rec];
+    const dx = BYP.andOutDx + (e.rec === "exc" ? 2.5 : -2.5), sx = P.x + dx, y1 = P.y + NR + 16 + (e.rec === "inh" ? 4 : 0);
+    const start = [[sx, P.y + onCircle(dx)], [sx, y1], [x, y1]];
+    if (e.rec === "exc") {                     // into the bottom
+      const y2 = Q.y + NR + 9, xe = Q.x + BYP.notExcDx;
+      e.points = start.concat([[x, y2], [xe, y2], [xe, Q.y + onCircle(BYP.notExcDx) + GAP]]);
+      e.merge = { x: xe + 8, y: y2 };
+    } else {                                   // into the right side, above the outgoing synapses
+      const y2 = Q.y + BYP.notInhDy;
+      e.points = start.concat([[x, y2], [Q.x + onCircle(BYP.notInhDy) + GAP, y2]]);
+      e.merge = { x: Q.x + NR + 6, y: y2 };
+    }
+    e.trunk = { x, from: y1 }; e.branch = e.points[3][1];
+  }
+  // ---- "no spike at t+1": up along the left of the AND column, into the bottom (left half)
   for (const e of edges.filter((x) => x.type === "noEventBus")) {
-    const P = nodes[e.from], Q = nodes[e.to], x = X.term - NR - 14, dy = 9;
-    const y2 = Q.y + dy, xe = Q.x - Math.sqrt(NR * NR - dy * dy) - GAP;
-    e.points = [[P.x + NR + 0.5, P.y], [x, P.y], [x, y2], [xe, y2]];
+    const P = nodes[e.from], Q = nodes[e.to], x = X.term - NR - 14;
+    const y2 = Q.y + NR + 8, xe = Q.x + BYP.andNoSpikeDx;
+    e.points = [[P.x + NR + 0.5, P.y], [x, P.y], [x, y2], [xe, y2], [xe, Q.y + onCircle(BYP.andNoSpikeDx) + GAP]];
     e.trunk = { x, from: P.y }; e.branch = y2;
-  }
-
-  // ---- towards AND gates: one lane per source gate, ordered top to bottom
-  const ttFrom = byFrom(tt);
-  ttFrom.forEach(([, list], k) => list.forEach((e) => (e.lane = k)));
-  spreadTo(tt, "ey", 5, 13, (a, b) => a.lane - b.lane);
-  for (const [from, list] of ttFrom) {
-    const P = nodes[from], x = X.term + NR + 16 + BYPASS_LANE * list[0].lane;
-    const sx = 5, y1 = P.y + NR + 7;
-    for (const e of list) {
-      const Q = nodes[e.to], y2 = Q.y + e.ey;
-      const xe = Q.x + Math.sqrt(Math.max(0, NR * NR - e.ey * e.ey)) + GAP;
-      e.points = [[P.x + sx, below(P, sx)], [P.x + sx, y1], [x, y1], [x, y2], [xe, y2]];
-      e.trunk = { x, from: y1 }; e.branch = y2;
-    }
-  }
-  // ---- towards NOT(state): one lane per source gate next to the NOT column
-  const tbFrom = byFrom(tb);
-  tbFrom.forEach(([, list], k) => list.forEach((e) => (e.lane = k)));
-  spreadTo(tb, "ex", 3, 11, (a, b) => a.lane - b.lane);
-  for (const [from, list] of tbFrom) {
-    const P = nodes[from], k = list[0].lane, x = X.notst + NR + 12 + 5 * k;
-    const sx = -5, y1 = P.y + NR + 7;
-    for (const e of list) {
-      const Q = nodes[e.to], y2 = Q.y + NR + 9 + 4 * e.lane % 12;
-      e.points = [[P.x + sx, below(P, sx)], [P.x + sx, y1], [x, y1], [x, y2], [Q.x + e.ex, y2], [Q.x + e.ex, below(Q, e.ex) + GAP]];
-      e.trunk = { x, from: y1 }; e.branch = y2;
-    }
   }
 }
 
-// Dots where the branches of a bypass trunk split off (not at its two ends).
+// Dots where branches split off a trunk (not at its ends) and where they join before a neuron.
 function bypassDots(edges) {
-  const trunks = {};
+  const dots = [], trunks = {}, joins = {};
   for (const e of edges) {
     if (!e.trunk) continue;
-    const key = e.from + ":" + e.type;
-    (trunks[key] = trunks[key] || { x: e.trunk.x, ys: [e.trunk.from], edges: [] }).ys.push(e.branch);
-    trunks[key].edges.push(e);
+    const key = e.from + ":" + e.type + ":" + e.rec;
+    (trunks[key] = trunks[key] || { x: e.trunk.x, ys: [e.trunk.from], rec: e.rec, from: e.from }).ys.push(e.branch);
+    if (e.merge) {
+      const j = e.to + ":" + e.rec + ":" + e.type;
+      (joins[j] = joins[j] || { lanes: new Set(), rec: e.rec, e }).lanes.add(e.trunk.x);
+    }
   }
-  const dots = [];
   for (const t of Object.values(trunks)) {
     const lo = Math.min(...t.ys), hi = Math.max(...t.ys);
-    for (const y of new Set(t.ys)) if (y > lo + 0.5 && y < hi - 0.5) dots.push({ x: t.x, y, from: t.edges[0].from });
+    for (const y of new Set(t.ys)) if (y > lo + 0.5 && y < hi - 0.5) dots.push({ x: t.x, y, rec: t.rec, from: t.from });
+  }
+  // branches from several trunks reaching one neuron: a dot on every trunk but the farthest
+  for (const j of Object.values(joins)) {
+    if (j.lanes.size < 2) continue;
+    const xs = [...j.lanes].sort((a, b) => a - b), y = j.e.points[3][1];
+    const far = j.e.type === "bypassTerm" ? xs[xs.length - 1] : xs[xs.length - 1];
+    for (const x of xs) if (x !== far) dots.push({ x, y, rec: j.rec, from: j.e.to });
   }
   return dots;
 }
@@ -483,7 +493,7 @@ function drawNetwork() {
   });
   // junction dots of the bypass trunks (only for the visible bypasses)
   const shownBypass = D.edges.filter((e) => e.trunk && show.bypass && show[e.rec] && visible(D.nodes[e.from]) && visible(D.nodes[e.to]));
-  const dots = bypassDots(shownBypass).map((p) => `<circle class="byp-dot" data-from="${p.from}" cx="${p.x}" cy="${p.y}" r="2.4"/>`).join("");
+  const dots = bypassDots(shownBypass).map((p) => `<circle class="byp-dot ${p.rec}" cx="${p.x}" cy="${p.y}" r="2.2"/>`).join("");
   $("#netLayer").innerHTML = parts.join("") + `<g>${eparts.join("")}${dots}</g><g>${nparts.join("")}</g>`;
   $("#btnNetReset").hidden = !spec.net_labels;
   netHighlight();
