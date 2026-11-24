@@ -43,19 +43,22 @@ const NET_DESC = {
   output: "OR of the transitions that enter states marked as accepting in the JSON specification.",
 };
 // Neuron types that can be shown or hidden (the coloured checkboxes double as legend).
+// The last field is when they spike after input spikes at step t.
 const NET_GROUPS = [
-  ["source", "Spike sources (inputs, init)", ["input", "init"]],
-  ["op", "OP (OR of the inputs)", ["op"]],
-  ["delay", "Delay neuron", ["delay"]],
-  ["not", "NOT gates", ["not_input", "not_state", "no_event"]],
-  ["term", "AND gates (transitions)", ["term"]],
-  ["latch", "Latches (states)", ["latch"]],
-  ["output", "Output", ["output"]],
+  ["source", "Spike sources (inputs, init)", ["input", "init"], "t"],
+  ["op", "OP (OR of the inputs)", ["op"], "t + 1"],
+  ["delay", "Delay neuron", ["delay"], "t + 2"],
+  ["not", "NOT gates", ["not_input", "not_state"], "t + 2"],
+  ["noevent", "No spike at t+1 (bypass)", ["no_event"], "t + 3"],
+  ["term", "AND gates (transitions)", ["term"], "t + 3"],
+  ["latch", "Latches (states)", ["latch"], "set t + 4, active t + 5"],
+  ["output", "Output", ["output"], "t + 4"],
 ];
 const netHidden = new Set();       // hidden neuron kinds
 const NR = 15;                     // neuron radius
 const GAP = 1.5;                   // space between the end of a synapse and the neuron it reaches
 const COLX = { src: 0, op: 160, gate: 330, notst: 500, term: 690, latch: 920, out: 1150 };
+const BYPASS_LANE = 6;             // spacing of the vertical runs of the bypasses
 const LATCH_DX = 84;               // ring neurons at COLX.latch, set neuron N1 to their right
 const TERM_DY = 64;                // vertical spacing of stacked neurons
 const CLEAR = NR + 6;              // clearance a wire keeps from a neuron
@@ -73,6 +76,13 @@ function netKeyOf(s) {
 
 // ------------------------------------------------------------------ layout
 function netLayout(net) {
+  // columns; with bypasses, a corridor between the AND gates and the latches holds
+  // their vertical runs (one lane each)
+  const X = { ...COLX };
+  const termSet = new Set(net.terms.map((t) => t[2]));
+  const nBypass = net.conns.filter((c) => c[0][0] === "n" && termSet.has(c[0][1]) && termSet.has(c[1])).length;
+  const corridor = nBypass ? 20 + BYPASS_LANE * nBypass : 0;
+  X.latch += corridor; X.out += corridor;
   const nodes = {};
   const add = (key, o) => (nodes[key] = { key, ...o });
   net.sources.forEach((s, i) => add("s" + i, { src: true, kind: s.kind, label: s.label }));
@@ -102,22 +112,22 @@ function netLayout(net) {
     const cy = y + h / 2;
     bands[st.id] = { top: y, bottom: y + h, cy };
     const [n1, n2, n3] = net.latches[st.id].map((i) => nodes["n" + i]);
-    Object.assign(n2, { x: COLX.latch, y: cy - 38, major: COLX.latch });
-    Object.assign(n3, { x: COLX.latch, y: cy + 38, major: COLX.latch });
-    Object.assign(n1, { x: COLX.latch + LATCH_DX, y: cy, major: COLX.latch });
-    groups.push({ x0: COLX.latch - 38, y0: cy - 88, x1: COLX.latch + LATCH_DX + 62, y1: cy + 72, label: st.name, initial: st.initial, sid: st.id });
-    if (notStateOf[st.id]) Object.assign(notStateOf[st.id], { x: COLX.notst, y: cy });
-    terms.forEach((n, k) => Object.assign(n, { x: COLX.term, y: cy + (k - (terms.length - 1) / 2) * TERM_DY }));
+    Object.assign(n2, { x: X.latch, y: cy - 38, major: X.latch });
+    Object.assign(n3, { x: X.latch, y: cy + 38, major: X.latch });
+    Object.assign(n1, { x: X.latch + LATCH_DX, y: cy, major: X.latch });
+    groups.push({ x0: X.latch - 38, y0: cy - 88, x1: X.latch + LATCH_DX + 62, y1: cy + 72, label: st.name, initial: st.initial, sid: st.id });
+    if (notStateOf[st.id]) Object.assign(notStateOf[st.id], { x: X.notst, y: cy });
+    terms.forEach((n, k) => Object.assign(n, { x: X.term, y: cy + (k - (terms.length - 1) / 2) * TERM_DY }));
     y += h;
   }
   const H = Math.max(y, 200), mid = H / 2;
   const stack = (list, x, dy) => list.forEach((n, k) => Object.assign(n, { x, y: mid + (k - (list.length - 1) / 2) * dy }));
-  stack(all.filter((n) => n.src), COLX.src, 70);
-  stack(all.filter((n) => n.kind === "op"), COLX.op, 70);
-  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input"), all.filter((n) => n.kind === "no_event")), COLX.gate, TERM_DY);
-  stack(all.filter((n) => n.kind === "output"), COLX.out, 70);
+  stack(all.filter((n) => n.src), X.src, 70);
+  stack(all.filter((n) => n.kind === "op"), X.op, 70);
+  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input"), all.filter((n) => n.kind === "no_event")), X.gate, TERM_DY);
+  stack(all.filter((n) => n.kind === "output"), X.out, 70);
   for (const n of all) {
-    if (n.x === undefined) Object.assign(n, { x: COLX.out, y: mid });
+    if (n.x === undefined) Object.assign(n, { x: X.out, y: mid });
     if (n.major === undefined) n.major = n.x;
   }
 
@@ -137,6 +147,7 @@ function netLayout(net) {
     return e;
   });
   routeWires(edges.filter((e) => e.type === "wire"), nodes, all);
+  routeBypasses(edges.filter((e) => e.type === "bypassTerm" || e.type === "bypassBack"), nodes, X);
 
   const xs = all.map((n) => n.x), ys = all.map((n) => n.y);
   const box = { x0: Math.min(...xs) - 50, y0: Math.min(0, ...ys) - 50, x1: Math.max(...xs) + 90, y1: Math.max(H, ...ys) + 40 };
@@ -146,7 +157,7 @@ function netLayout(net) {
     ["gate", "Delay · NOT inputs", used((n) => n.kind === "delay" || n.kind === "not_input")],
     ["notst", "NOT states", used((n) => n.kind === "not_state")], ["term", "AND (terms)", used((n) => n.kind === "term")],
     ["latch", "Latches", true], ["out", "Output", used((n) => n.kind === "output")],
-  ].filter((h) => h[2]).map(([c, text]) => ({ c, x: COLX[c] + (c === "latch" ? LATCH_DX / 2 : 0), y: box.y0 + 14, text }));
+  ].filter((h) => h[2]).map(([c, text]) => ({ c, x: X[c] + (c === "latch" ? LATCH_DX / 2 : 0), y: box.y0 + 14, text }));
   return { nodes, edges, groups, headers, box };
 }
 
@@ -209,6 +220,46 @@ function routeWires(wires, nodes, all) {
   }
 }
 
+// Bypasses (parallel implementation), with right angles like the other synapses. They
+// leave the AND gate from below. Between AND gates: down, right to their own lane in the
+// corridor on the right of the AND column, up or down, and left into the lower right side
+// of the target (its label is above, the other synapses use the left and the middle of
+// the right side). Towards NOT(state): down, left to a lane on the right of the NOT
+// column, and into the bottom of the NOT gate.
+function routeBypasses(edges, nodes, X) {
+  const ports = (list, key, lo, hi) => {             // spread the ends on one side of a neuron
+    const by = {};
+    for (const e of list) (by[e[key]] = by[e[key]] || []).push(e);
+    return by;
+  };
+  const spread = (by, set, lo, hi, order) => Object.values(by).forEach((l) => {
+    l.sort(order);
+    l.forEach((e, k) => (e[set] = l.length === 1 ? (lo + hi) / 2 : lo + (hi - lo) * k / (l.length - 1)));
+  });
+  const yOf = (k) => nodes[k].y;
+  const tt = edges.filter((e) => e.type === "bypassTerm"), tb = edges.filter((e) => e.type === "bypassBack");
+  // start ports (bottom of the AND gate): right half towards AND gates, left half towards NOT gates
+  spread(ports(tt, "from"), "sx", 0, 8, (a, b) => yOf(a.to) - yOf(b.to));
+  spread(ports(tb, "from"), "sx", -9, -2, (a, b) => yOf(b.to) - yOf(a.to));
+  spread(ports(tt, "to"), "ey", 6, 12, (a, b) => yOf(a.from) - yOf(b.from));
+  spread(ports(tb, "to"), "ex", 3, 10, (a, b) => yOf(a.from) - yOf(b.from));
+  const below = (n, dx) => n.y + Math.sqrt(Math.max(0, NR * NR - dx * dx));
+  // lanes: short runs closest to the AND column
+  tt.sort((a, b) => Math.abs(yOf(a.from) - yOf(a.to)) - Math.abs(yOf(b.from) - yOf(b.to)));
+  tt.forEach((e, k) => {
+    const P = nodes[e.from], Q = nodes[e.to], x = X.term + NR + 14 + BYPASS_LANE * k;
+    const y1 = P.y + NR + 6 + e.sx * 0.6, y2 = Q.y + e.ey;
+    const xe = Q.x + Math.sqrt(Math.max(0, NR * NR - e.ey * e.ey)) + GAP;
+    e.points = [[P.x + e.sx, below(P, e.sx)], [P.x + e.sx, y1], [x, y1], [x, y2], [xe, y2]];
+  });
+  tb.sort((a, b) => Math.abs(yOf(a.from) - yOf(a.to)) - Math.abs(yOf(b.from) - yOf(b.to)));
+  tb.forEach((e, k) => {
+    const P = nodes[e.from], Q = nodes[e.to], x = X.notst + NR + 10 + 4 * k;
+    const y1 = P.y + NR + 8 + 4 * k, y2 = Math.max(Q.y + NR + 10 + 4 * k, y1);
+    e.points = [[P.x + e.sx, below(P, e.sx)], [P.x + e.sx, y1], [x, y1], [x, y2], [Q.x + e.ex, y2], [Q.x + e.ex, below(Q, e.ex) + GAP]];
+  });
+}
+
 // polyline with rounded corners
 function roundedPath(pts, r = 7) {
   let d = `M${pts[0][0]},${pts[0][1]}`;
@@ -231,19 +282,7 @@ function netEdgePath(e, D) {
     const sg = e.type === "arcTop" ? -1 : 1, yy = sg < 0 ? e.band.top + 18 : e.band.bottom - 18;
     return roundedPath([[P.x, P.y + sg * (NR + 0.5)], [P.x, yy], [Q.x, yy], [Q.x, Q.y + sg * (NR + GAP)]], 10);
   }
-  // bypasses leave from the bottom of the AND gate and reach the top of the AND gate or
-  // the bottom of NOT(state), away from the ports used by the other synapses
-  const d45 = NR * Math.SQRT1_2;
-  if (e.type === "bypassTerm") {         // between AND gates of the same column: curve on their right
-    const r = COLX.term + 55 + Math.min(70, Math.abs(P.y - Q.y) * 0.2);
-    const sx = P.x + d45, sy = P.y + d45, ex = Q.x + d45 + GAP * .7, ey = Q.y - d45 - GAP * .7;
-    if (e.from === e.to) return `M${sx},${sy} C${P.x + 60},${P.y + 50} ${P.x + 60},${P.y - 50} ${ex},${ey}`;
-    return `M${sx},${sy} C${r},${P.y + 30} ${r},${Q.y - 40} ${ex},${ey}`;
-  }
-  if (e.type === "bypassBack") {         // AND gate -> NOT(state), one column back: curve below both
-    const yb = Math.max(P.y, Q.y) + 46;
-    return `M${P.x - d45},${P.y + d45} C${P.x - 30},${yb} ${Q.x + 10},${yb} ${Q.x + 2},${Q.y + NR + GAP}`;
-  }
+  if (e.type === "bypassTerm" || e.type === "bypassBack") return roundedPath(e.points, 5);
   return roundedPath(latchRoute(e, P, Q), 5);
 }
 
@@ -427,16 +466,14 @@ function netHighlight() {
 
 function netDetails() {
   const el = $("#netDetails");
-  if (!netPinned || !netData.nodes[netPinned]) {
-    el.innerHTML = `<h3>Neuron</h3><p class="note">Hover over a neuron to highlight its synapses. Click it to see them listed here, with the time it takes to spike after an input spike.</p>`;
-    return;
-  }
+  el.hidden = !netPinned || !netData || !netData.nodes[netPinned];       // shown for a clicked neuron
+  if (el.hidden) { el.innerHTML = ""; return; }
   const n = netData.nodes[netPinned], st = NET_STYLE[n.kind] || NET_STYLE.output;
   const desc = n.kind === "latch" ? (n.j ? NET_DESC.ring : NET_DESC.set) : NET_DESC[n.kind] || "";
   const row = (e, other) => {
     const o = netData.nodes[other], os = NET_STYLE[o.kind] || NET_STYLE.output;
     return `<li><i class="dot" style="background:${os.fill};border-color:${os.stroke}"></i><a href="#" data-goto-n="${other}">${esc(netName(o))}</a>
-      <span class="syn-tag ${e.rec}">${e.rec === "exc" ? "exc" : "inh"}</span></li>`;
+      <span class="syn-tag ${e.rec}${e.bypass ? " bypass" : ""}" title="${e.bypass ? "bypass" : ""}">${e.rec === "exc" ? "exc" : "inh"}${e.w !== 1 ? " ×" + e.w : ""}</span></li>`;
   };
   const lat = netLatency(netPinned);
   let latHtml = "";
@@ -449,7 +486,7 @@ function netDetails() {
       : `<p class="lat"><b>init + ${lat.steps}</b><span>Driven by the initialisation spike:<br>${chain}</span></p>`;
   }
   const inc = netData.edges.filter((e) => e.to === n.key), out = netData.edges.filter((e) => e.from === n.key);
-  el.innerHTML = `<div class="inspector-head"><h3>${n.src ? "Spike source" : "Neuron"}</h3><button class="btn small" id="netUnpin">Close</button></div>
+  el.innerHTML = `<div class="inspector-head"><h3>${n.src ? "Selected spike source" : "Selected neuron"}</h3><button class="btn small" id="netUnpin">Close</button></div>
     <div class="net-title"><i class="dot big" style="background:${st.fill};border-color:${st.stroke}"></i><div><b>${esc(netName(n))}</b><span>${esc(st.name)}</span></div></div>
     ${latHtml}
     <p class="note">${esc(desc)}</p>
@@ -498,8 +535,7 @@ async function loadNetwork() {
   netFresh = false;
   const c = netCountsData;
   $("#netCounts").innerHTML = `<dl class="kv counts">
-    <dt>Neurons</dt><dd class="big">${c.neurons}</dd>
-    <dt>Spike sources<span>inputs and initialisation</span></dt><dd class="big">${c.sources}</dd>
+    <dt>Neurons<span>${c.neurons} neurons + ${c.sources} spike source${c.sources === 1 ? "" : "s"} (inputs and initialisation)</span></dt><dd class="big">${c.neurons + c.sources}</dd>
     <dt>Synapses<span>${c.excitatory} excitatory · ${c.inhibitory} inhibitory</span></dt><dd class="big">${c.synapses}</dd></dl>`;
   renderNetKinds(); drawNetwork(); netDetails();
   netFit();                        // the structure changed: show the whole network
@@ -689,9 +725,9 @@ function initNetwork() {
 // one checkbox per neuron type present in the network, with its colour
 function renderNetKinds() {
   const present = new Set(Object.values(netData.nodes).map((n) => n.kind));
-  $("#netKinds").innerHTML = NET_GROUPS.filter(([, , kinds]) => kinds.some((k) => present.has(k))).map(([id, label, kinds]) => {
+  $("#netKinds").innerHTML = NET_GROUPS.filter(([, , kinds]) => kinds.some((k) => present.has(k))).map(([id, label, kinds, when]) => {
     const st = NET_STYLE[kinds[0]];
     return `<label class="chk"><input type="checkbox" data-group="${id}" ${netHidden.has(kinds[0]) ? "" : "checked"}>
-      <i class="dot${id === "source" ? " sq" : ""}" style="background:${st.fill};border-color:${st.stroke}"></i>${label}</label>`;
+      <i class="dot${id === "source" ? " sq" : ""}" style="background:${st.fill};border-color:${st.stroke}"></i>${label}<span class="when">${when}</span></label>`;
   }).join("");
 }

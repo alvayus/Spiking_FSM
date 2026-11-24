@@ -32,6 +32,9 @@ async function init() {
   const help = $("#helpCard");
   if (load("fsm_snn_help_open") === false) help.open = false;
   help.addEventListener("toggle", () => store("fsm_snn_help_open", help.open));
+  const netHelp = $("#netHelpCard");
+  if (load("fsm_snn_net_help_open") === false) netHelp.open = false;
+  netHelp.addEventListener("toggle", () => store("fsm_snn_net_help_open", netHelp.open));
   $("#btnUndo").addEventListener("click", undo);
   $("#btnSave").addEventListener("click", () => saveSpec(false));
   $("#btnSaveAs").addEventListener("click", () => saveSpec(true));

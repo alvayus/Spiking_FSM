@@ -135,12 +135,22 @@
       <div class="zoom-bar" id="netZoom"></div>
     </div>
     <aside class="panel">
+      <details class="card help" id="netHelpCard" open>
+        <summary>How to use it</summary>
+        <ol class="note">
+          <li>Hover over a neuron to highlight its synapses.</li>
+          <li>Click a neuron to see its synapses and when it spikes after an input spike (path in blue). Click the background to close it.</li>
+          <li>Double-click a name or a column heading to rename it.</li>
+          <li>Drag or scroll to move, Ctrl + scroll to zoom.</li>
+          <li>Choose the implementation below, and show or hide neuron types and synapses.</li>
+        </ol>
+      </details>
+      <div class="card" id="netDetails" hidden></div>
       <div class="card"><h3>Implementation</h3><div id="archList" class="radio-list"></div></div>
       <div class="card"><h3>Spiking neural network</h3><div id="netCounts">—</div></div>
-      <div class="card" id="netDetails"></div>
       <div class="card">
         <h3>Show</h3>
-        <div class="sub-title">Neurons</div>
+        <div class="sub-title">Neurons<span class="when">spike at, after input spikes at <i>t</i></span></div>
         <div id="netKinds" class="chk-list"></div>
         <div class="sub-title">Synapses</div>
         <div class="chk-list">
@@ -156,7 +166,6 @@
             </div>
           </div>
         </div>
-        <p class="note">Columns follow the order in which the neurons spike after an input spike at time step <i>t</i>: OP at <i>t</i> + 1, NOT gates and delay at <i>t</i> + 2, AND gates at <i>t</i> + 3, then the latches.</p>
       </div>
     </aside>
   </section>

@@ -372,6 +372,9 @@ pre.code {
 .raster-scroll { margin-top: 10px; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
 .raster { display: block; }
 .net .syn.bypass .line { stroke: var(--bypass); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.chk .when, .sub-title .when { margin-left: auto; padding-left: 8px; font-size: 11px; font-weight: 400; color: var(--muted); white-space: nowrap; text-transform: none; letter-spacing: 0; }
+.sub-title:has(.when) { display: flex; align-items: baseline; }
+.syn-tag.bypass { background: #ebe1f7; color: #5b3a94; }
 .sub-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 2px 26px; font-size: 12px; color: var(--muted); }
 .sub-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .raster text { font-size: 11px; fill: #334155; }
