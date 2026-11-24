@@ -24,14 +24,14 @@ def check(sp, params):
     last = max([e for e, _ in inp["events"]] + [INIT_STEP])
     spikes = run_pynn(net, inp["trains"], backend="spinnaker", duration_steps=last + 30)
     for st in s["states"]:
-        _, a, b = net["latches"][st["id"]]
-        expected = sorted(set(spikes.get(a, [])) | set(spikes.get(b, [])))
+        expected = sorted({t for n in net["states"][st["id"]] for t in spikes.get(n, [])})
         assert ns["active_steps"][st["name"]] == expected, st["name"]
 
 
 def test_code_matches_runner():
     for sp in [S.template_simple(), S.template_detector(), S.template_counter(4), S.template_sequence("ABBA")]:
-        check(sp, dict(mode="random", n_events=40, seed=3))
+        for arch in ["pipelined", "parallel"]:
+            check(dict(sp, architecture=arch), dict(mode="random", n_events=40, seed=3))
 
 
 if __name__ == "__main__":

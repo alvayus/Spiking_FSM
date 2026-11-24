@@ -15,10 +15,12 @@ DEFAULT_NEURON_PARAMS = {
     "v_thresh": -64.91, # mV
 }
 
-# Synaptic weights (nA).  Inhibitory weights are positive magnitudes applied
+# Synaptic weights (nA), all 1 as in the manuscript: the gates work in a Boolean
+# way, so a spike makes the receiving neuron fire unless it is inhibited.
+# Inhibitory weights are positive magnitudes applied
 # through the inhibitory receptor (PyNN convention).  Replace with the values
 # of the repository if they differ.
-DEFAULT_WEIGHTS = {"exc": 1.0, "inh": 2.0}
+DEFAULT_WEIGHTS = {"exc": 1.0, "inh": 1.0}
 
 BACKEND_MODULES = {
     "spinnaker": "pyNN.spiNNaker",

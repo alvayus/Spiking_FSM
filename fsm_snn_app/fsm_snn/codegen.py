@@ -17,7 +17,7 @@ import datetime as _dt
 import re
 
 from .analysis import _expected_state_steps
-from .builder import INIT_STEP, OUTPUT_LATENCY, build
+from .builder import INIT_STEP, build
 from .reference import run_reference
 from .pynn_runner import DEFAULT_NEURON_PARAMS, DEFAULT_WEIGHTS
 from .spec import normalise, option_to_text, validate
@@ -63,6 +63,14 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         for j, n in enumerate((n1, n2, n3)):
             where[n] = (var, j)
         latch_of[sid] = var
+    clock = [i for i, n in enumerate(net.neurons) if n["kind"] == "clock"]
+    if clock:                                     # parallel: the clock ring, one population
+        var = unique("clock")
+        for j, n in enumerate(clock):
+            where[n] = (var, j)
+        pops.append((var, len(clock), "clock: a ring of two neurons that fires on every time step"))
+    sname = lambda sid: st_by_id[sid]["name"] if sid in st_by_id else sid
+    tname = lambda tid: f"{sname(trans[tid]['from'])} -> {sname(trans[tid]['to'])}"
     term_info = {n: (tid, k) for tid, k, n in net.terms}
     for i, n in enumerate(net.neurons):
         if i in where:
@@ -78,14 +86,26 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         elif kind == "not_state":
             name = label[4:]
             var, com = unique("NOT_" + name), f"NOT gate of state {name}"
-        elif kind == "no_event":
-            var, com = unique("no_spike"), "bypass: input spikes at t not followed by more at t+1"
+        elif kind == "hold":
+            var, com = unique("hold_" + label.split(" ")[0]), f"state {sname(n['sid'])} stays (state neuron)"
+        elif kind == "enter":
+            var = unique("enter_" + label.replace("→", "_"))
+            com = f"transition {tname(n['tid'])} fires (state neuron of {sname(trans[n['tid']]['to'])})"
+        elif kind == "no_trans":
+            var = unique("NOT_" + label[4:].replace("→", "_").replace(" #", "_"))
+            com = f"transition {tname(n['tid'])} does not fire (clock and none of its terms)"
+        elif kind == "leave":
+            var, com = unique(label.replace(" ", "_")), f"some term leaving {sname(n['sid'])} holds"
+        elif kind == "no_stay":
+            var = unique("NOT_" + label[4:].replace(" #", "_").replace(" ", "_"))
+            com = f"{sname(n['sid'])} must leave (it inhibits its hold neuron)"
         elif kind == "term":
             tid, k = term_info[i]
             t = trans[tid]
             a, b = st_by_id[t["from"]]["name"], st_by_id[t["to"]]["name"]
             var = unique(f"AND_{a}_{b}" + (f"_{k + 1}" if len(t["options"]) > 1 else ""))
-            com = f"AND gate of {a} -> {b}: {option_to_text(t['options'][k])}"
+            com = (f"AND gate of {a} -> {b}: {option_to_text(t['options'][k])}" if not clock else
+                   f"condition term of {a} -> {b}: {option_to_text(t['options'][k])} (AND gate, no state)")
         else:
             var, com = unique("output"), "output neuron"
         where[i] = (var, 0)
@@ -107,15 +127,23 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         pn, qn = name_of(pre), net.neurons[post]["label"]
         if qk == "op":
             return "OP", f"input {pn} drives OP"
+        if qk == "clock":
+            return "Clock", ("the initialisation spike starts the clock" if src_kind == "init" else "clock ring")
+        if qk == "no_trans":
+            return "Conditions", ("the clock drives it on every step" if rec == "exc"
+                                  else f"{pn}: a term of the transition holds")
+        if qk == "leave":
+            return "Conditions", f"{pn}: a term leaving the state holds"
+        if qk == "no_stay":
+            return "Conditions", (f"{pn}: the state leaves" if rec == "exc" else f"{pn}: a self-loop term holds, the state stays")
+        if qk in ("hold", "enter"):
+            if src_kind == "init":
+                return "State (synchronous)", f"{qn.split(' ')[0]} is active at start"
+            if rec == "inh":
+                return "State (synchronous)", (f"{pn}: the transition does not fire" if qk == "enter" else f"{pn}")
+            return "State (synchronous)", f"{pn}: its state was active one step earlier"
         if qk == "delay":
             return "NOT gates and delay neuron", "OP -> delay"
-        if qk == "no_event":
-            return "NOT gates and delay neuron", ("OP of the input spikes at t excites it" if rec == "exc"
-                                                  else "OP of input spikes at t+1 inhibits it")
-        if qk == "not_state" and pk == "term":
-            st = qn[4:]
-            return "NOT gates and delay neuron", (f"bypass, input spikes 2 steps earlier: {pn} leaves {st}" if rec == "exc"
-                                                  else f"bypass, input spikes 2 steps earlier: {pn} enters {st}")
         if qk in ("not_input", "not_state"):
             if rec == "exc":
                 return "NOT gates and delay neuron", f"OP excites {qn}"
@@ -129,11 +157,6 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
                 return "AND gates (transition terms)", f"{pn}: source state {pn[4:]} must be active"
             if pk == "not_input":
                 return "AND gates (transition terms)", f"{pn}: {pn[4:]} must spike"
-            if pk == "term":
-                return "AND gates (transition terms)", (f"bypass, input spikes 1 step earlier: {pn} enters the source state" if rec == "exc"
-                                                        else f"bypass, input spikes 1 step earlier: {pn} leaves the source state")
-            if pk == "no_event":
-                return "AND gates (transition terms)", "no input spike now: cancels the bypass of the previous ones"
             return "AND gates (transition terms)", f"input {pn}: {pn} must not spike"
         if qk == "latch":
             st = qn.split(".")[0]
@@ -165,9 +188,17 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     w(f"{c['neurons']} neurons and {c['synapses']} synapses ({c['excitatory']} excitatory, "
       f"{c['inhibitory']} inhibitory).")
     w("")
-    w("Every state is a latch of three neurons: index 0 is the set neuron (N1) and")
-    w("indices 1 and 2 are the ring neurons (N2, N3), which keep spiking while the state")
-    w("is active. Input spike times come from the settings of the Simulate tab.")
+    if clock:
+        w("Parallel (synchronous) implementation: the conditions of the transitions are")
+        w("computed from the inputs on their own, and the state is recomputed on every time")
+        w("step by one neuron per state (hold) and one per transition between two states")
+        w("(enter); a state is active while any of its neurons spikes. Every synapse has")
+        w("weight 1. Input spike times come from the settings of the Simulate tab.")
+    else:
+        w("Every state is a latch of three neurons: index 0 is the set neuron (N1) and")
+        w("indices 1 and 2 are the ring neurons (N2, N3), which keep spiking while the state")
+        w("is active. Every synapse has weight 1. Input spike times come from the settings")
+        w("of the Simulate tab.")
     if simulation:
         w("")
         w("The script builds the network, runs it, compares the states (and Output) with")
@@ -197,11 +228,10 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     w("")
     w("")
     w("def connect(pre, post, receptor, conns):")
-    w('    """conns: list of (index in pre, index in post, delay in time steps[, weight multiple])."""')
+    w('    """conns: list of (index in pre, index in post, delay in time steps)."""')
     w('    weight = W_EXC if receptor == "excitatory" else W_INH')
     w("    return sim.Projection(pre, post,")
-    w("                          sim.FromListConnector([(c[0], c[1], weight * (c[3] if len(c) > 3 else 1), c[2] * DT)")
-    w("                                                 for c in conns]),")
+    w("                          sim.FromListConnector([(i, j, weight, d * DT) for i, j, d in conns]),")
     w("                          synapse_type=sim.StaticSynapse(), receptor_type=receptor)")
     w("")
     w("")
@@ -222,7 +252,8 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         extra = ", active at start" if st["initial"] else ""
         w(f"{var} = sim.Population(3, cell, label={var!r})   # latch of state {st['name']}: [N1 set, N2 ring, N3 ring]{extra}")
     w("")
-    order = ["OP", "NOT gates and delay neuron", "AND gates (transition terms)", "Latches", "Output"]
+    order = ["OP", "Clock", "NOT gates and delay neuron", "AND gates (transition terms)", "Conditions",
+             "Latches", "State (synchronous)", "Output"]
     for sec in order:
         if sec not in sections:
             continue
@@ -234,25 +265,28 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             if com == "internal connections of the latch":
                 latch_internal.setdefault((pv, receptor), []).append((pi, qi, delay))
                 continue
-            wt = f", {mult}" if mult != 1 else ""
-            note = f" (weight x{mult})" if mult != 1 else ""
-            w(f"connect({pv}, {qv}, {receptor!r}, [({pi}, {qi}, {delay}{wt})])   # {com}{note}")
+            w(f"connect({pv}, {qv}, {receptor!r}, [({pi}, {qi}, {delay})])   # {com}")
         for (var, receptor), conns in latch_internal.items():
             w(f"connect({var}, {var}, {receptor!r}, {conns!r})   # N1 -> N2 (set), N2 <-> N3 (ring)")
         w("")
     w("# ------------------------------------------------------------ run")
-    w("latches = {" + ", ".join(f"{st_by_id[sid]['name']!r}: {var}" for sid, var in latch_of.items()) + "}")
-    w("for pop in latches.values():")
+    w("# neurons whose spikes are each state: " + ("the ring of its latch (N2, N3)" if not clock
+                                                  else "its hold neuron and the enter neurons of the transitions into it"))
+    w("STATE_NEURONS = {")
+    for st in s["states"]:
+        w(f"    {st['name']!r}: [" + ", ".join(f"({where[n][0]}, {where[n][1]})" for n in net.states[st["id"]]) + "],")
+    w("}")
+    w("recorded = {id(pop): pop for ns in STATE_NEURONS.values() for pop, _ in ns}")
+    w("for pop in recorded.values():")
     w('    pop.record("spikes")')
     if simulation and net.output is not None:
         w(f'{where[net.output][0]}.record("spikes")')
     w("sim.run(DURATION * DT)")
     w("")
+    w('trains = {k: pop.get_data("spikes").segments[0].spiketrains for k, pop in recorded.items()}')
     w("active_steps = {}")
-    w("for name, pop in latches.items():")
-    w('    trains = pop.get_data("spikes").segments[0].spiketrains')
-    w("    ring = trains[1:]                    # the state is active while N2 / N3 spike")
-    w("    active_steps[name] = sorted({int(round(float(t) / DT)) for tr in ring for t in tr.magnitude})")
+    w("for name, ns in STATE_NEURONS.items():")
+    w("    active_steps[name] = sorted({int(round(float(t) / DT)) for pop, j in ns for t in trains[id(pop)][j].magnitude})")
     w('    print(f"{name}: active at steps {active_steps[name]}")')
     if simulation and net.output is not None:
         w(f'output_steps = sorted(int(round(float(t) / DT)) for t in {where[net.output][0]}.get_data("spikes").segments[0].spiketrains[0].magnitude)')
@@ -266,21 +300,21 @@ def _comparison(w, s, net, inp, duration, slug):
     """Simulate tab: compare with the reference automaton and save the results."""
     events = inp["events"]
     ref = run_reference(s, events)
-    exp = _expected_state_steps(s, events, ref, duration)
+    exp = _expected_state_steps(s, events, ref, duration, net.architecture)
     initial = next((st["name"] for st in s["states"] if st["initial"]), None)
     out = net.output is not None
     w("")
     w("# ------------------------------------------------------------ comparison with the reference")
     w("# Computed by the application from the reference automaton: the steps in which each")
-    w("# latch ring must spike ([first, last] ranges) and the steps of the expected Output spikes.")
+    w("# state must spike ([first, last] ranges) and the steps of the expected Output spikes.")
     w(f"EVENTS = {[[e, sorted(ev)] for e, ev in events]!r}   # [step, inputs that spike]")
     w("EXPECTED = {")
     for st in s["states"]:
         w(f"    {st['name']!r}: {_ranges(exp[st['id']])!r},")
     w("}")
     if out:
-        w(f"EXPECTED_OUTPUT = {[e + OUTPUT_LATENCY for e in ref['detections']]!r}")
-    w(f"INITIAL_STATE, READY_STEP = {initial!r}, {INIT_STEP + 2}")
+        w(f"EXPECTED_OUTPUT = {[e + net.timing['output_latency'] for e in ref['detections']]!r}")
+    w(f"INITIAL_STATE, READY_STEP = {initial!r}, {net.timing['ready_step']}")
     w("")
     w("# a simulator may shift every spike by a constant number of steps: measure it on the")
     w("# initial state, which must become active at READY_STEP")

@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-from .builder import (INIT_STEP, OUTPUT_LATENCY, STATE_LATENCY, T_TERM, Netlist,
-                      architecture, min_event_gap)
+from .builder import T_TERM, TIMING, Netlist, architecture, min_event_gap
 from .inputs import check_gaps
 from .reference import run_reference
 from .spec import normalise
 
 
 def _state_spikes(net: Netlist, spikes: dict, sid: str) -> list[int]:
-    _, a, b = net.latches[sid]
-    return sorted(set(spikes.get(a, [])) | set(spikes.get(b, [])))
+    """Steps in which a state is active: spikes of its latch ring (pipelined) or of
+    its hold and enter neurons (parallel)."""
+    return sorted({t for n in net.states[sid] for t in spikes.get(n, [])})
 
 
-def _expected_state_steps(s, events, ref, end_step):
-    """Expected ring activity (one spike per step while active) for each state."""
+def _expected_state_steps(s, events, ref, end_step, arch="pipelined"):
+    """Expected activity of each state (one spike per step while active)."""
+    if arch == "parallel":
+        return _expected_parallel(s, events, ref, end_step)
+    lat = TIMING["pipelined"]["state_latency"]
     st = {x["id"]: x for x in s["states"]}
-    active_from = {sid: INIT_STEP + 2 for sid in st if st[sid]["initial"]}
+    active_from = {sid: TIMING["pipelined"]["ready_step"] for sid in st if st[sid]["initial"]}
     steps = {sid: [] for sid in st}
 
     def close(sid, last):
@@ -37,15 +40,33 @@ def _expected_state_steps(s, events, ref, end_step):
             if x["on_mismatch"] == "discard":
                 close(sid, e + 2)
                 if sid in a:
-                    active_from[sid] = e + STATE_LATENCY
+                    active_from[sid] = e + lat
             elif sid not in a or sid in left:
                 close(sid, e + 3)
                 if sid in a:
-                    active_from[sid] = e + STATE_LATENCY
+                    active_from[sid] = e + lat
         for sid in a - b:
-            active_from.setdefault(sid, e + STATE_LATENCY)
+            active_from.setdefault(sid, e + lat)
     for sid in list(active_from):
         close(sid, end_step)
+    return steps
+
+
+def _expected_parallel(s, events, ref, end_step):
+    """Parallel (synchronous) network: from its first step on, a state spikes on every
+    step while it is active, and the state after an event shows state_latency steps later."""
+    tm = TIMING["parallel"]
+    lat, start = tm["state_latency"], tm["ready_step"]
+    cur = {x["id"] for x in s["states"] if x["initial"]}
+    changes = [(e + lat, set(a)) for (e, _), a in zip(events, ref["active_after"])]
+    steps = {x["id"]: [] for x in s["states"]}
+    k = 0
+    for t in range(start, end_step):
+        while k < len(changes) and changes[k][0] <= t:
+            cur = changes[k][1]
+            k += 1
+        for sid in cur:
+            steps[sid].append(t)
     return steps
 
 
@@ -75,6 +96,7 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     names = {x["id"]: x["name"] for x in s["states"]}
     ref = run_reference(s, events)
     warnings = []
+    arch, tm = net.architecture, net.timing
 
     # ---- calibrate a constant offset of the back-end (ideal: 0) ---------------
     offset = 0
@@ -82,16 +104,16 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     if init_states:
         first = _state_spikes(net, spikes, init_states[0])
         if first:
-            offset = first[0] - (INIT_STEP + 2)
+            offset = first[0] - tm["ready_step"]
         else:
             warnings.append("The initial state never became active: check the weights and neuron parameters.")
     if abs(offset) > 3:
         warnings.append(f"Unusual simulator time offset ({offset} steps).")
 
     # ---- state agreement at every event ----------------------------------------
-    # The transitions that the network fires for each event (its term neurons, at
-    # e + T_TERM) give the states it is in, whatever the spacing of the events: with
-    # the bypasses, a state that lasts a single event may never reach its latch ring.
+    # Pipelined: the transitions the network fires for each event (its term neurons, at
+    # e + T_TERM) give the states it is in. Parallel: its state neurons show the state
+    # before each event one step before the state after it.
     state_spk = {sid: set(_state_spikes(net, spikes, sid)) for sid in names}
     tmap = {t["id"]: t for t in s["transitions"]}
     term_spk = {}
@@ -102,6 +124,8 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     per_event = []
     agree = 0
     for (e, ev), exp in zip(events, ref["active_before"]):
+        if arch == "parallel":
+            active = {sid for sid in names if e + tm["state_latency"] - 1 + offset in state_spk[sid]}
         got = sorted(active)
         ok = got == exp
         agree += ok
@@ -112,7 +136,7 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
         active = (active - left) | {t["to"] for t in fired}
     final_ok = None
     if events:
-        t_final = events[-1][0] + STATE_LATENCY + 1 + offset
+        t_final = events[-1][0] + tm["state_latency"] + 1 + offset
         if t_final < duration_steps:
             got = sorted(sid for sid in names if t_final in state_spk[sid])
             final_ok = got == ref["active_after"][-1]
@@ -120,7 +144,7 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     # ---- detections --------------------------------------------------------------
     out_spk = sorted(spikes.get(net.output, [])) if net.output is not None else []
     # the simulation records steps 0 .. duration_steps-1: later detections cannot be evaluated
-    expected_out = [e + OUTPUT_LATENCY + offset for e in ref["detections"]]
+    expected_out = [e + tm["output_latency"] + offset for e in ref["detections"]]
     ref_det = [e for e, t in zip(ref["detections"], expected_out) if t < duration_steps]
     expected_out = [t for t in expected_out if t < duration_steps]
     unmatched = list(out_spk)
@@ -138,10 +162,10 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     recall = tp / (tp + fn) if tp + fn else None
 
     ms = lambda steps: f"{steps * dt:g} ms"
-    early = [e for e, _ in events if e <= INIT_STEP + 2]
+    early = [e for e, _ in events if e <= TIMING["pipelined"]["ready_step"]] if arch == "pipelined" else []
     if early:
         warnings.append(f"{len(early)} input spike time(s) arrive before the initial states are set "
-                        f"(step {INIT_STEP + 2}, {ms(INIT_STEP + 2)} with a {dt:g} ms time step); "
+                        f"(step {TIMING['pipelined']['ready_step']}, {ms(TIMING['pipelined']['ready_step'])} with a {dt:g} ms time step); "
                         "they are not evaluated correctly.")
     gap = min_event_gap(s)
     gaps = check_gaps(events, gap)
@@ -157,7 +181,7 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
         rows.append(dict(label=name, kind="input", spikes=sorted(trains.get(name, []))))
     if net.op is not None:
         rows.append(dict(label="OP", kind="op", spikes=sorted(spikes.get(net.op, []))))
-    exp_states = _expected_state_steps(s, events, ref, duration_steps)
+    exp_states = _expected_state_steps(s, events, ref, duration_steps, arch)
     # fsm: the abstract machine (no delays), drawn in its own plot ("Show expected");
     # the comparison (expected=) uses the reference shifted by the network latency
     fsm = _fsm_intervals(s, [ev for ev in events if ev[0] < duration_steps], ref, duration_steps)

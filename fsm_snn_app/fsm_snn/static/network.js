@@ -21,44 +21,69 @@ const NET_STYLE = {
   input:     { fill: "#dae8fc", stroke: "#6c8ebf", name: "Input (spike source)" },
   init:      { fill: "#f5f5f5", stroke: "#666666", name: "Initialisation source" },
   op:        { fill: "#ffe6cc", stroke: "#d79b00", name: "OP: input-driven OR" },
+  clock:     { fill: "#f5f5f5", stroke: "#666666", name: "Clock (ring)" },
   delay:     { fill: "#fff2cc", stroke: "#d6b656", name: "Delay neuron of the AND gates" },
   not_input: { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate of an input" },
   not_state: { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate of a state" },
-  no_event:  { fill: "#f8cecc", stroke: "#b85450", name: "Bypass: no input spike at t+1" },
   term:      { fill: "#e1d5e7", stroke: "#9673a6", name: "AND gate (transition term)" },
+  no_trans:  { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate: the transition does not fire" },
+  leave:     { fill: "#ffe6cc", stroke: "#d79b00", name: "OR gate: a term leaving the state holds" },
+  no_stay:   { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate: the state must leave" },
   latch:     { fill: "#d5e8d4", stroke: "#82b366", name: "Latch neuron" },
+  hold:      { fill: "#d5e8d4", stroke: "#82b366", name: "State neuron: the state stays (hold)" },
+  enter:     { fill: "#d5e8d4", stroke: "#82b366", name: "State neuron: the transition fires (enter)" },
   output:    { fill: "#f5f5f5", stroke: "#666666", name: "Output neuron" },
 };
 const NET_DESC = {
   input: "Spike source of an input signal. It drives OP and inhibits the NOT gate of the input and the AND gates in which the input appears negated.",
-  init: "Spike source with a single spike that sets the latches of the states that are active at start.",
+  init: "Spike source with a single spike at the start: it sets the states that are active at start (and starts the clock).",
   op: "Input-driven OR: spikes one step after any input spikes. It triggers every evaluation of the gates.",
+  clock: "Two neurons that excite each other, like the ring of a latch: one of them spikes on every time step. It drives the NOT gates that say a transition does not fire, also on steps without input spikes.",
   delay: "Yellow neuron of the AND gates: repeats OP one step later and provides the excitation of every AND gate.",
   not_input: "Excited by OP and inhibited by the input: spikes when some input spikes but this one does not.",
-  not_state: "Excited by OP and inhibited by the latch (N1, N2, N3): spikes when some input spikes and the state is not active. In the parallel implementation, the transitions fired by input spikes two steps earlier override the latch (bypass).",
-  no_event: "Parallel implementation: spikes when input spikes are not followed by more input spikes on the next step. It then cancels their bypass towards the AND gates, so a bypass never fires a transition by itself.",
-  term: "Excited by the delay neuron and inhibited by the NOT gates of its positive literals, by the inputs of its negated literals and by the NOT gate of its source state. It spikes when the source state is active and the term holds; it then sets the destination latch and resets the source latch. In the parallel implementation it also receives the transitions fired one step earlier (bypass): entering its source state excites it, leaving it inhibits it.",
+  not_state: "Excited by OP and inhibited by the latch (N1, N2, N3): spikes when some input spikes and the state is not active.",
+  term: "Excited by the delay neuron and inhibited by the NOT gates of its positive literals and by the inputs of its negated literals. Pipelined: also inhibited by the NOT gate of its source state; it spikes when the source state is active and the term holds, and then sets the destination latch and resets the source latch. Parallel: it does not depend on the state, it only says whether the term holds.",
+  no_trans: "Excited by the clock on every step and inhibited by the terms of the transition: spikes when the transition does not fire, and then inhibits its enter neuron. There is one copy per neuron of the source state, so the enter neuron is never excited more than inhibited.",
+  leave: "OR of the terms of the transitions that leave the state.",
+  no_stay: "Excited when a term leaving the state holds, inhibited by its self-loop terms: spikes when the state must leave, and then inhibits its hold neuron (one copy per neuron of the state).",
+  hold: "Spikes on every step while the state stays: it is excited by every neuron of the state one step earlier, and inhibited when the state must leave.",
+  enter: "Spikes when the transition fires: it is excited by every neuron of the source state one step earlier, and inhibited when the transition does not fire. It is a neuron of the destination state.",
   set: "Set neuron (N1) of the latch: starts the ring. Setting a state that is already active does no harm (both ring neurons may then spike on every step until the next reset).",
   ring: "Ring neuron (N2 / N3) of the latch: the two ring neurons excite each other, so the state is active while they keep spiking. A transition that leaves the state inhibits them (reset).",
   output: "OR of the transitions that enter states marked as accepting in the JSON specification.",
 };
-// Neuron types that can be shown or hidden (the coloured checkboxes double as legend).
-// The last field is when they spike after input spikes at step t.
-const NET_GROUPS = [
-  ["source", "Spike sources (inputs, init)", ["input", "init"], "t"],
-  ["op", "OP (OR of the inputs)", ["op"], "t + 1"],
-  ["delay", "Delay neuron", ["delay"], "t + 2"],
-  ["not", "NOT gates", ["not_input", "not_state"], "t + 2"],
-  ["noevent", "No spike at t+1 (bypass)", ["no_event"], "t + 3"],
-  ["term", "AND gates (transitions)", ["term"], "t + 3"],
-  ["latch", "Latches (states)", ["latch"], "set t + 4, active t + 5"],
-  ["output", "Output", ["output"], "t + 4"],
-];
+// Neuron types that can be shown or hidden (the coloured checkboxes double as legend),
+// with when they spike after input spikes at step t, for each implementation.
+const NET_GROUPS = {
+  pipelined: [
+    ["source", "Spike sources (inputs, init)", ["input", "init"], "t"],
+    ["op", "OP (OR of the inputs)", ["op"], "t + 1"],
+    ["delay", "Delay neuron", ["delay"], "t + 2"],
+    ["not", "NOT gates", ["not_input", "not_state"], "t + 2"],
+    ["term", "AND gates (transitions)", ["term"], "t + 3"],
+    ["latch", "Latches (states)", ["latch"], "set t + 4, active t + 5"],
+    ["output", "Output", ["output"], "t + 4"],
+  ],
+  parallel: [
+    ["source", "Spike sources (inputs, init)", ["input", "init"], "t"],
+    ["op", "OP (OR of the inputs)", ["op"], "t + 1"],
+    ["clock", "Clock", ["clock"], "every step"],
+    ["delay", "Delay neuron", ["delay"], "t + 2"],
+    ["not", "NOT gates of the inputs", ["not_input"], "t + 2"],
+    ["term", "AND gates (condition terms)", ["term"], "t + 3"],
+    ["cond", "Conditions (NOT, OR)", ["no_trans", "leave", "no_stay"], "t + 4, t + 5"],
+    ["state", "State neurons (hold, enter)", ["hold", "enter"], "t + 6"],
+    ["output", "Output", ["output"], "t + 7"],
+  ],
+};
+const netGroups = () => NET_GROUPS[archOf()] || NET_GROUPS.pipelined;
 const netHidden = new Set();       // hidden neuron kinds
 const NR = 15;                     // neuron radius
 const GAP = 1.5;                   // space between the end of a synapse and the neuron it reaches
 const COLX = { src: 0, op: 160, gate: 330, notst: 500, term: 690, latch: 920, out: 1150 };
-const BYPASS_LANE = 7;             // spacing of the bypass trunks (one per AND gate and type)
+// parallel: AND gates, conditions, state neurons (and a corridor for their synapses)
+const COLP = { src: 0, op: 160, gate: 330, term: 500, cond: 690, state: 900, out: 1100 };
+const STATE_LANE = 7;              // spacing of the vertical runs between state neurons
 const LATCH_DX = 84;               // ring neurons at COLX.latch, set neuron N1 to their right
 const TERM_DY = 64;                // vertical spacing of stacked neurons
 const CLEAR = NR + 6;              // clearance a wire keeps from a neuron
@@ -78,41 +103,71 @@ function netKeyOf(s) {
 
 // ------------------------------------------------------------------ layout
 function netLayout(net) {
-  // columns; with bypasses, a corridor between the AND gates and the latches holds
-  // their vertical runs (one lane each)
-  const X = { ...COLX };
-  const termSet = new Set(net.terms.map((t) => t[2]));
-  // one lane per AND gate and synapse type with bypasses towards other AND gates
-  const nTrunks = new Set(net.conns.filter((c) => c[0][0] === "n" && termSet.has(c[0][1]) && termSet.has(c[1])).map((c) => c[0][1] + c[2])).size;
-  const corridor = nTrunks ? 26 + BYPASS_LANE * nTrunks : 0;
-  X.latch += corridor; X.out += corridor;
+  const parallel = net.architecture === "parallel";
   const nodes = {};
   const add = (key, o) => (nodes[key] = { key, ...o });
   net.sources.forEach((s, i) => add("s" + i, { src: true, kind: s.kind, label: s.label }));
   const latchOf = {};
-  for (const [sid, ns] of Object.entries(net.latches)) ns.forEach((n, j) => (latchOf[n] = { sid, j }));
+  for (const [sid, ns] of Object.entries(net.latches || {})) ns.forEach((n, j) => (latchOf[n] = { sid, j }));
   const termOf = Object.fromEntries(net.terms.map(([tid, k, n]) => [n, { tid, k }]));
   net.neurons.forEach((n, i) => {
     const o = { kind: n.kind, label: n.label, idx: i };
+    if (n.sid) o.sid = n.sid;
+    if (n.tid) Object.assign(o, { tid: n.tid, from: (transById(n.tid) || {}).from, to: (transById(n.tid) || {}).to });
     if (latchOf[i]) Object.assign(o, latchOf[i]);
     if (termOf[i]) Object.assign(o, termOf[i], { from: (transById(termOf[i].tid) || {}).from });
     add("n" + i, o);
   });
   const all = Object.values(nodes);
+  const place = parallel ? netPlaceParallel : netPlacePipelined;
+  const { X, bands, groups, H, headerCols } = place(net, nodes, all);
+  const mid = H / 2;
+  const stack = (list, x, dy) => list.forEach((n, k) => Object.assign(n, { x, y: mid + (k - (list.length - 1) / 2) * dy }));
+  stack(all.filter((n) => n.src), X.src, 70);
+  stack(all.filter((n) => n.kind === "op" || n.kind === "clock"), X.op, 70);
+  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input")), X.gate, TERM_DY);
+  stack(all.filter((n) => n.kind === "output"), X.out, 70);
+  for (const n of all) {
+    if (n.x === undefined) Object.assign(n, { x: X.out, y: mid });
+    if (n.major === undefined) n.major = n.x;
+  }
+
+  // ---- synapses: kind of route
+  const edges = net.conns.map(([pre, post, rec, delay], i) => {
+    const e = { i, from: (pre[0] === "src" ? "s" : "n") + pre[1], to: "n" + post, rec, delay };
+    const P = nodes[e.from], Q = nodes[e.to];
+    if (parallel && P.major === X.state && Q.major === X.state) e.type = "stateBus";
+    else if (e.from === e.to) e.type = "self";
+    else if (P.kind === "latch" && Q.kind === "not_state") { e.type = P.j === 1 ? "arcTop" : "arcBottom"; e.band = bands[P.sid]; }
+    else if (P.kind === "latch" && Q.kind === "latch" && P.sid === Q.sid) e.type = "local";
+    else if (Q.major > P.major) e.type = "wire";
+    else e.type = "local";
+    return e;
+  });
+  routeWires(edges.filter((e) => e.type === "wire"), nodes, all);
+  if (parallel) routeStateBus(edges.filter((e) => e.type === "stateBus"), nodes, X);
+
+  const xs = all.map((n) => n.x), ys = all.map((n) => n.y);
+  const box = { x0: Math.min(...xs) - 50, y0: Math.min(0, ...ys) - 50, x1: Math.max(...xs) + 90, y1: Math.max(H, ...ys) + 40 };
+  const used = (k) => all.some(k);
+  const headers = headerCols.filter((h) => used(h[2])).map(([c, text, , dx = 0]) => ({ c, x: X[c] + dx, y: box.y0 + 14, text }));
+  return { nodes, edges, groups, headers, box };
+}
+
+// Pipelined: one band per state with its NOT gate, the AND gates of its outgoing
+// transitions and its latch.
+function netPlacePipelined(net, nodes, all) {
+  const X = { ...COLX };
   const notStateOf = {};
   for (const n of all) if (n.kind === "not_state") {
     const st = spec.states.find((s) => "NOT " + s.name === n.label);
     if (st) { notStateOf[st.id] = n; n.sid = st.id; }
   }
-
-  // ---- one band per state: NOT gate, AND gates of its outgoing transitions, latch
   const bands = {}, groups = [];
   let y = 0;
   for (const st of spec.states.filter((s) => net.latches[s.id])) {
     const terms = all.filter((n) => n.kind === "term" && n.from === st.id);
-    const content = Math.max(156, terms.length * TERM_DY);
-    const h = content + 64;
-    const cy = y + h / 2;
+    const h = Math.max(156, terms.length * TERM_DY) + 64, cy = y + h / 2;
     bands[st.id] = { top: y, bottom: y + h, cy };
     const [n1, n2, n3] = net.latches[st.id].map((i) => nodes["n" + i]);
     Object.assign(n2, { x: X.latch, y: cy - 38, major: X.latch });
@@ -123,48 +178,78 @@ function netLayout(net) {
     terms.forEach((n, k) => Object.assign(n, { x: X.term, y: cy + (k - (terms.length - 1) / 2) * TERM_DY }));
     y += h;
   }
-  const H = Math.max(y, 200), mid = H / 2;
-  const stack = (list, x, dy) => list.forEach((n, k) => Object.assign(n, { x, y: mid + (k - (list.length - 1) / 2) * dy }));
-  stack(all.filter((n) => n.src), X.src, 70);
-  stack(all.filter((n) => n.kind === "op"), X.op, 70);
-  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input")), X.gate, TERM_DY);
-  // "no spike at t+1" (bypasses): below everything, its trunk goes up on the left of the AND gates
-  for (const n of all) if (n.kind === "no_event") Object.assign(n, { x: X.notst, y: H + 60 });
-  stack(all.filter((n) => n.kind === "output"), X.out, 70);
-  for (const n of all) {
-    if (n.x === undefined) Object.assign(n, { x: X.out, y: mid });
-    if (n.major === undefined) n.major = n.x;
+  const headerCols = [
+    ["src", "Inputs", (n) => n.src], ["op", "OR", (n) => n.kind === "op"],
+    ["gate", "Delay · NOT inputs", (n) => n.kind === "delay" || n.kind === "not_input"],
+    ["notst", "NOT states", (n) => n.kind === "not_state"], ["term", "AND (terms)", (n) => n.kind === "term"],
+    ["latch", "Latches", (n) => n.kind === "latch", LATCH_DX / 2], ["out", "Output", (n) => n.kind === "output"],
+  ];
+  return { X, bands, groups, H: Math.max(y, 200), headerCols };
+}
+
+// Parallel: one band per state with the condition terms of its outgoing transitions,
+// their conditions (NOT / OR gates) and its state neurons (hold and the enter neurons
+// of the transitions into it), inside a box like a latch.
+function netPlaceParallel(net, nodes, all) {
+  const stateKeys = new Set(Object.values(net.states).flat().map((i) => "n" + i));
+  const X = { ...COLP };
+  X.out += 26 + STATE_LANE * stateKeys.size;          // corridor for the state synapses
+  const bands = {}, groups = [];
+  let y = 0;
+  for (const st of spec.states) {
+    const sid = st.id;
+    const terms = all.filter((n) => n.kind === "term" && n.from === sid);
+    const cond = all.filter((n) => (n.kind === "no_trans" && n.from === sid) || ((n.kind === "leave" || n.kind === "no_stay") && n.sid === sid));
+    const mine = (net.states[sid] || []).map((i) => nodes["n" + i]);
+    const extra = all.filter((n) => n.kind === "enter" && !stateKeys.has(n.key) && n.from === sid);   // self-loop detectors
+    const sts = mine.concat(extra);
+    const rows = Math.max(terms.length, cond.length, sts.length, 2);
+    const h = rows * TERM_DY + 70, cy = y + h / 2;
+    bands[sid] = { top: y, bottom: y + h, cy };
+    const col = (list, x) => list.forEach((n, k) => Object.assign(n, { x, y: cy + (k - (list.length - 1) / 2) * TERM_DY, major: x }));
+    col(terms, X.term); col(cond, X.cond); col(sts, X.state);
+    const ys = sts.map((n) => n.y);
+    groups.push({ x0: X.state - 46, y0: Math.min(...ys) - 52, x1: X.state + 46, y1: Math.max(...ys) + 34, label: st.name, initial: st.initial, sid });
+    y += h;
   }
+  const headerCols = [
+    ["src", "Inputs", (n) => n.src], ["op", "OR · clock", (n) => n.kind === "op"],
+    ["gate", "Delay · NOT inputs", (n) => n.kind === "delay" || n.kind === "not_input"],
+    ["term", "AND (terms)", (n) => n.kind === "term"], ["cond", "Conditions", (n) => ["no_trans", "leave", "no_stay"].includes(n.kind)],
+    ["state", "States", (n) => n.kind === "hold"], ["out", "Output", (n) => n.kind === "output"],
+  ];
+  return { X, bands, groups, H: Math.max(y, 200), headerCols };
+}
 
-  // ---- synapses: kind of route
-  const edges = net.conns.map(([pre, post, rec, delay, w = 1], i) => {
-    const e = { i, from: (pre[0] === "src" ? "s" : "n") + pre[1], to: "n" + post, rec, delay, w };
-    const P = nodes[e.from], Q = nodes[e.to];
-    // bypasses of the parallel implementation: between AND gates, towards NOT(state), "no event"
-    e.bypass = (P.kind === "term" && (Q.kind === "term" || Q.kind === "not_state")) || P.kind === "no_event";
-    if (P.kind === "no_event" && Q.kind === "term") e.type = "noEventBus";
-    else if (P.kind === "term" && Q.kind === "term") e.type = "bypassTerm";
-    else if (P.kind === "term" && Q.kind === "not_state") e.type = "bypassBack";
-    else if (e.from === e.to) e.type = "self";
-    else if (P.kind === "latch" && Q.kind === "not_state") { e.type = P.j === 1 ? "arcTop" : "arcBottom"; e.band = bands[P.sid]; }
-    else if (P.kind === "latch" && Q.kind === "latch" && P.sid === Q.sid) e.type = "local";
-    else if (Q.major > P.major) e.type = "wire";
-    else e.type = "local";
-    return e;
-  });
-  routeWires(edges.filter((e) => e.type === "wire"), nodes, all);
-  routeBypasses(edges.filter((e) => e.type === "bypassTerm" || e.type === "bypassBack" || e.type === "noEventBus"), nodes, X);
+// Parallel: synapses between state neurons (one step later), drawn like a bus: every state
+// neuron has a trunk (its own lane in the corridor on the right of the state column) that
+// leaves from below, and every neuron it excites gets one head, on its lower right side.
+function routeStateBus(edges, nodes, X) {
+  const yOf = (k) => nodes[k].y;
+  const froms = [...new Set(edges.map((e) => e.from))].sort((a, b) => yOf(a) - yOf(b));
+  const lane = Object.fromEntries(froms.map((k, i) => [k, X.state + NR + 22 + STATE_LANE * i]));
+  const dy = 11, side = Math.sqrt(NR * NR - dy * dy);
+  for (const e of edges) {
+    const P = nodes[e.from], Q = nodes[e.to], x = lane[e.from];
+    const y1 = P.y + NR + 8, y2 = Q.y + dy;
+    e.points = [[P.x, P.y + NR + 0.5], [P.x, y1], [x, y1], [x, y2], [Q.x + side + GAP, y2]];
+    e.trunk = { x, from: y1 }; e.branch = y2;
+  }
+}
 
-  const xs = all.map((n) => n.x), ys = all.map((n) => n.y);
-  const box = { x0: Math.min(...xs) - 50, y0: Math.min(0, ...ys) - 50, x1: Math.max(...xs) + 90, y1: Math.max(H, ...ys) + 40 };
-  const used = (k) => all.some(k);
-  const headers = [
-    ["src", "Inputs", used((n) => n.src)], ["op", "OR", used((n) => n.kind === "op")],
-    ["gate", "Delay · NOT inputs", used((n) => n.kind === "delay" || n.kind === "not_input")],
-    ["notst", "NOT states", used((n) => n.kind === "not_state")], ["term", "AND (terms)", used((n) => n.kind === "term")],
-    ["latch", "Latches", true], ["out", "Output", used((n) => n.kind === "output")],
-  ].filter((h) => h[2]).map(([c, text]) => ({ c, x: X[c] + (c === "latch" ? LATCH_DX / 2 : 0), y: box.y0 + 14, text }));
-  return { nodes, edges, groups, headers, box };
+// Dots where the branches of a trunk split off (not at its ends).
+function busDots(edges) {
+  const trunks = {};
+  for (const e of edges) {
+    if (!e.trunk) continue;
+    (trunks[e.from] = trunks[e.from] || { x: e.trunk.x, ys: [e.trunk.from] }).ys.push(e.branch);
+  }
+  const dots = [];
+  for (const t of Object.values(trunks)) {
+    const lo = Math.min(...t.ys), hi = Math.max(...t.ys);
+    for (const y of new Set(t.ys)) if (y > lo + 0.5 && y < hi - 0.5) dots.push({ x: t.x, y });
+  }
+  return dots;
 }
 
 // ------------------------------------------------------------------ orthogonal routing
@@ -226,97 +311,6 @@ function routeWires(wires, nodes, all) {
   }
 }
 
-// Bypasses (parallel implementation), drawn like a bus, with right angles only:
-// * colour by type (excitatory blue, inhibitory orange) and one trunk per type for every
-//   AND gate, so a trunk never mixes the two;
-// * the branches reaching a neuron merge before it, so every neuron gets at most one
-//   excitatory head and one inhibitory head, each on its own side:
-//     AND gate:   excitatory from the right (below the outgoing synapses), inhibitory from
-//                 below (right half), "no spike at t+1" from below (left half); the two
-//                 trunks leave side by side from the middle of the bottom;
-//     NOT(state): excitatory from below (right half; the latch arrives in the middle),
-//                 inhibitory from the right (above the outgoing synapses);
-// * a dot marks where branches split off or join.
-const BYP = { andExcDy: 11, andInhDx: 8, andOutDx: 0, andNoSpikeDx: -8, notExcDx: 8, notInhDy: -11 };
-function routeBypasses(edges, nodes, X) {
-  const yOf = (k) => nodes[k].y;
-  const onCircle = (d) => Math.sqrt(Math.max(0, NR * NR - d * d));
-  const tt = edges.filter((e) => e.type === "bypassTerm"), tb = edges.filter((e) => e.type === "bypassBack");
-  // lanes: one per (source gate, type), sources from top to bottom
-  const lanesOf = (list) => {
-    const keys = [...new Set(list.map((e) => e.from + "|" + e.rec))]
-      .sort((p, q) => yOf(p.split("|")[0]) - yOf(q.split("|")[0]) || (p.endsWith("exc") ? -1 : 1));
-    return Object.fromEntries(keys.map((k, i) => [k, i]));
-  };
-  // ---- AND -> AND (corridor on the right of the AND column)
-  const ttLane = lanesOf(tt);
-  for (const e of tt) {
-    const P = nodes[e.from], Q = nodes[e.to], x = X.term + NR + 18 + BYPASS_LANE * ttLane[e.from + "|" + e.rec];
-    const dx = BYP.andOutDx + (e.rec === "exc" ? 2.5 : -2.5), sx = P.x + dx, y1 = P.y + NR + 16 + (e.rec === "inh" ? 4 : 0);
-    const start = [[sx, P.y + onCircle(dx)], [sx, y1], [x, y1]];
-    if (e.rec === "exc") {                     // into the right side, below the outgoing synapses
-      const y2 = Q.y + BYP.andExcDy;
-      e.points = start.concat([[x, y2], [Q.x + onCircle(BYP.andExcDy) + GAP, y2]]);
-      e.merge = { x: Q.x + NR + 8, y: y2 };
-    } else {                                   // into the bottom, right half
-      const y2 = Q.y + NR + 8, xe = Q.x + BYP.andInhDx;
-      e.points = start.concat([[x, y2], [xe, y2], [xe, Q.y + onCircle(BYP.andInhDx) + GAP]]);
-      e.merge = { x: xe + 8, y: y2 };
-    }
-    e.trunk = { x, from: y1 }; e.branch = e.points[3][1];
-  }
-  // ---- AND -> NOT(state) (lanes on the right of the NOT column)
-  const tbLane = lanesOf(tb);
-  for (const e of tb) {
-    const P = nodes[e.from], Q = nodes[e.to], x = X.notst + NR + 16 + 6 * tbLane[e.from + "|" + e.rec];
-    const dx = BYP.andOutDx + (e.rec === "exc" ? 2.5 : -2.5), sx = P.x + dx, y1 = P.y + NR + 16 + (e.rec === "inh" ? 4 : 0);
-    const start = [[sx, P.y + onCircle(dx)], [sx, y1], [x, y1]];
-    if (e.rec === "exc") {                     // into the bottom
-      const y2 = Q.y + NR + 9, xe = Q.x + BYP.notExcDx;
-      e.points = start.concat([[x, y2], [xe, y2], [xe, Q.y + onCircle(BYP.notExcDx) + GAP]]);
-      e.merge = { x: xe + 8, y: y2 };
-    } else {                                   // into the right side, above the outgoing synapses
-      const y2 = Q.y + BYP.notInhDy;
-      e.points = start.concat([[x, y2], [Q.x + onCircle(BYP.notInhDy) + GAP, y2]]);
-      e.merge = { x: Q.x + NR + 6, y: y2 };
-    }
-    e.trunk = { x, from: y1 }; e.branch = e.points[3][1];
-  }
-  // ---- "no spike at t+1": up along the left of the AND column, into the bottom (left half)
-  for (const e of edges.filter((x) => x.type === "noEventBus")) {
-    const P = nodes[e.from], Q = nodes[e.to], x = X.term - NR - 14;
-    const y2 = Q.y + NR + 8, xe = Q.x + BYP.andNoSpikeDx;
-    e.points = [[P.x + NR + 0.5, P.y], [x, P.y], [x, y2], [xe, y2], [xe, Q.y + onCircle(BYP.andNoSpikeDx) + GAP]];
-    e.trunk = { x, from: P.y }; e.branch = y2;
-  }
-}
-
-// Dots where branches split off a trunk (not at its ends) and where they join before a neuron.
-function bypassDots(edges) {
-  const dots = [], trunks = {}, joins = {};
-  for (const e of edges) {
-    if (!e.trunk) continue;
-    const key = e.from + ":" + e.type + ":" + e.rec;
-    (trunks[key] = trunks[key] || { x: e.trunk.x, ys: [e.trunk.from], rec: e.rec, from: e.from }).ys.push(e.branch);
-    if (e.merge) {
-      const j = e.to + ":" + e.rec + ":" + e.type;
-      (joins[j] = joins[j] || { lanes: new Set(), rec: e.rec, e }).lanes.add(e.trunk.x);
-    }
-  }
-  for (const t of Object.values(trunks)) {
-    const lo = Math.min(...t.ys), hi = Math.max(...t.ys);
-    for (const y of new Set(t.ys)) if (y > lo + 0.5 && y < hi - 0.5) dots.push({ x: t.x, y, rec: t.rec, from: t.from });
-  }
-  // branches from several trunks reaching one neuron: a dot on every trunk but the farthest
-  for (const j of Object.values(joins)) {
-    if (j.lanes.size < 2) continue;
-    const xs = [...j.lanes].sort((a, b) => a - b), y = j.e.points[3][1];
-    const far = j.e.type === "bypassTerm" ? xs[xs.length - 1] : xs[xs.length - 1];
-    for (const x of xs) if (x !== far) dots.push({ x, y, rec: j.rec, from: j.e.to });
-  }
-  return dots;
-}
-
 // polyline with rounded corners
 function roundedPath(pts, r = 7) {
   let d = `M${pts[0][0]},${pts[0][1]}`;
@@ -339,7 +333,7 @@ function netEdgePath(e, D) {
     const sg = e.type === "arcTop" ? -1 : 1, yy = sg < 0 ? e.band.top + 18 : e.band.bottom - 18;
     return roundedPath([[P.x, P.y + sg * (NR + 0.5)], [P.x, yy], [Q.x, yy], [Q.x, Q.y + sg * (NR + GAP)]], 10);
   }
-  if (e.type === "bypassTerm" || e.type === "bypassBack" || e.type === "noEventBus") return roundedPath(e.points, 5);
+  if (e.type === "stateBus") return roundedPath(e.points, 5);
   return roundedPath(latchRoute(e, P, Q), 5);
 }
 
@@ -430,7 +424,11 @@ function netGlyph(n) {
   if (n.kind === "init") return "init";
   if (n.kind === "op") return "OP";
   if (n.kind === "delay") return "Δ";
-  if (n.kind === "not_input" || n.kind === "not_state" || n.kind === "no_event") return "¬";
+  if (["not_input", "not_state", "no_trans", "no_stay"].includes(n.kind)) return "¬";
+  if (n.kind === "leave") return "∨";
+  if (n.kind === "clock") return "C";
+  if (n.kind === "hold") return "H";
+  if (n.kind === "enter") return "E";
   if (n.kind === "term") return "∧";
   if (n.kind === "latch") return "N" + (n.j + 1);
   return "out";
@@ -439,7 +437,9 @@ function netLabelLines(n) {
   if (n.kind === "input" && n.label.length > 3) return [n.label];
   if (n.kind === "not_input" || n.kind === "not_state") return [n.label.replace(/^NOT /, "¬")];
   if (n.kind === "delay") return ["delay"];
-  if (n.kind === "no_event") return ["no spike", "at t+1"];
+  if (n.kind === "no_trans") return [n.label.replace(/^NOT /, "¬")];
+  if (n.kind === "no_stay") return [n.label.replace(/^NOT /, "¬")];
+  if (n.kind === "leave" || n.kind === "enter" || n.kind === "hold" || n.kind === "clock") return [n.label];
   if (n.kind === "term") {
     const t = transById(n.tid);
     return [n.label.replace(/ \(\d+\)$/, ""), t ? optionText(t.options[n.k]) : ""];
@@ -459,7 +459,7 @@ function netName(n) {
 }
 
 function drawNetwork() {
-  const D = netData, show = { exc: $("#netExc").checked, inh: $("#netInh").checked, bypass: $("#netBypass").checked };
+  const D = netData, show = { exc: $("#netExc").checked, inh: $("#netInh").checked };
   const visible = (n) => !netHidden.has(n.kind);
   const parts = [];
   const ed = (key, def) => `data-lbl="${esc(key)}" data-def="${esc(def)}"`;
@@ -472,12 +472,11 @@ function drawNetwork() {
   const eparts = [];
   for (const e of D.edges) {
     const P = D.nodes[e.from], Q = D.nodes[e.to];
-    // bypasses have their own checkbox, independent of the excitatory / inhibitory ones
-    if ((e.bypass ? !show.bypass : !show[e.rec]) || !visible(P) || !visible(Q)) continue;
+    if (!show[e.rec] || !visible(P) || !visible(Q)) continue;
     const d = netEdgePath(e, D);
-    const tip = `${netName(P)} → ${netName(Q)} · ${e.rec === "exc" ? "excitatory" : "inhibitory"}${e.w !== 1 ? ` · weight ×${e.w}` : ""}${e.bypass ? " · bypass" : ""} · delay ${e.delay}`;
-    eparts.push(`<g class="syn ${e.rec}${e.bypass ? " bypass" : ""}" data-e="${e.i}"><title>${esc(tip)}</title>
-      <path class="hit" d="${d}"/><path class="line" d="${d}" marker-end="url(#${e.rec === "exc" ? "synExc" : "synInh"}${e.bypass ? "B" : ""})"/></g>`);
+    const tip = `${netName(P)} → ${netName(Q)} · ${e.rec === "exc" ? "excitatory" : "inhibitory"} · delay ${e.delay}`;
+    eparts.push(`<g class="syn ${e.rec}" data-e="${e.i}"><title>${esc(tip)}</title>
+      <path class="hit" d="${d}"/><path class="line" d="${d}" marker-end="url(#${e.rec === "exc" ? "synExc" : "synInh"})"/></g>`);
   }
   const nparts = Object.values(D.nodes).filter(visible).map((n) => {
     const st = NET_STYLE[n.kind] || NET_STYLE.output;
@@ -494,9 +493,9 @@ function drawNetwork() {
     return `<g class="nn" data-n="${n.key}" transform="translate(${n.x},${n.y})"><title>${esc(netName(n) + " — " + st.name)}</title>
       ${shape}<text class="ng" style="font-size:${gsize}px" ${ed(id + "#g", netGlyph(n))}>${esc(glyph)}</text>${lbl}</g>`;
   });
-  // junction dots of the bypass trunks (only for the visible bypasses)
-  const shownBypass = D.edges.filter((e) => e.trunk && show.bypass && visible(D.nodes[e.from]) && visible(D.nodes[e.to]));
-  const dots = bypassDots(shownBypass).map((p) => `<circle class="byp-dot ${p.rec}" cx="${p.x}" cy="${p.y}" r="2.2"/>`).join("");
+  // junction dots of the trunks between state neurons (parallel)
+  const shownBus = D.edges.filter((e) => e.trunk && show[e.rec] && visible(D.nodes[e.from]) && visible(D.nodes[e.to]));
+  const dots = busDots(shownBus).map((p) => `<circle class="bus-dot" cx="${p.x}" cy="${p.y}" r="2.2"/>`).join("");
   $("#netLayer").innerHTML = parts.join("") + `<g>${eparts.join("")}${dots}</g><g>${nparts.join("")}</g>`;
   $("#btnNetReset").hidden = !spec.net_labels;
   netHighlight();
@@ -536,7 +535,7 @@ function netHighlight() {
 function netSynDetails(el) {
   const e = netData.edges[netSynPinned], P = netData.nodes[e.from], Q = netData.nodes[e.to];
   const dot = (n) => { const s = NET_STYLE[n.kind] || NET_STYLE.output; return `<i class="dot" style="background:${s.fill};border-color:${s.stroke}"></i>`; };
-  const type = (e.rec === "exc" ? "Excitatory" : "Inhibitory") + (e.bypass ? " bypass" : "");
+  const type = e.rec === "exc" ? "Excitatory" : "Inhibitory";
   el.hidden = false;
   el.innerHTML = `<div class="inspector-head"><h3>Selected synapse</h3><button class="btn small" id="netUnpin">Close</button></div>
     <ul class="syn-list">
@@ -544,11 +543,10 @@ function netSynDetails(el) {
       <li>${dot(Q)}<a href="#" data-goto-n="${e.to}">${esc(netName(Q))}</a><span class="muted">to</span></li>
     </ul>
     <dl class="kv syn-kv">
-      <dt>Type</dt><dd><span class="syn-tag ${e.rec}${e.bypass ? " bypass" : ""}">${type}</span></dd>
-      <dt>Weight</dt><dd>${e.w === 1 ? "1 ×" : e.w + " ×"} ${e.rec === "exc" ? "excitatory" : "inhibitory"} weight</dd>
+      <dt>Type</dt><dd><span class="syn-tag ${e.rec}">${type}</span></dd>
       <dt>Delay</dt><dd>${e.delay} time step${e.delay === 1 ? "" : "s"}</dd>
     </dl>
-    ${e.bypass ? `<p class="note">Bypass of the parallel implementation: it carries the transitions fired by earlier input spikes, so the next ones do not wait for the latches.</p>` : ""}`;
+`;
   $("#netUnpin").addEventListener("click", () => { netSynPinned = null; netHighlight(); netDetails(); });
   $$("[data-goto-n]", el).forEach((a) => a.addEventListener("click", (ev) => {
     ev.preventDefault(); netSynPinned = null; netPinned = a.dataset.gotoN; netHighlight(); netDetails();
@@ -564,7 +562,7 @@ function netDetails() {
   const row = (e, other) => {
     const o = netData.nodes[other], os = NET_STYLE[o.kind] || NET_STYLE.output;
     return `<li><i class="dot" style="background:${os.fill};border-color:${os.stroke}"></i><a href="#" data-goto-n="${other}">${esc(netName(o))}</a>
-      <span class="syn-tag ${e.rec}${e.bypass ? " bypass" : ""}" title="${e.bypass ? "bypass" : ""}">${e.rec === "exc" ? "exc" : "inh"}${e.w !== 1 ? " ×" + e.w : ""}</span></li>`;
+      <span class="syn-tag ${e.rec}">${e.rec === "exc" ? "exc" : "inh"}</span></li>`;
   };
   const lat = netLatency(netPinned);
   let latHtml = "";
@@ -611,7 +609,6 @@ function renderArch() {
   $("#archList").innerHTML = Object.entries(info.architectures).map(([id, a]) => `<label>
     <input type="radio" name="arch" value="${id}" ${id === cur ? "checked" : ""}>
     <span>${esc(a.label)}<small>${esc(a.desc)}</small></span></label>`).join("");
-  $("#netBypassField").hidden = cur !== "parallel";
 }
 async function loadNetwork() {
   renderArch();
@@ -791,7 +788,7 @@ function initNetwork() {
     }
     netHighlight(); netDetails();
   });
-  ["#netExc", "#netInh", "#netBypass"].forEach((id) => $(id).addEventListener("change", () => netData && drawNetwork()));
+  ["#netExc", "#netInh"].forEach((id) => $(id).addEventListener("change", () => netData && drawNetwork()));
   $("#archList").addEventListener("change", (e) => {
     if (e.target.name !== "arch" || e.target.value === archOf()) return;
     spec.architecture = e.target.value;
@@ -799,7 +796,7 @@ function initNetwork() {
     if (!$("#tab-network").classList.contains("active")) loadNetwork();
   });
   $("#netKinds").addEventListener("change", (e) => {
-    const kinds = NET_GROUPS.find((g) => g[0] === e.target.dataset.group)[2];
+    const kinds = netGroups().find((g) => g[0] === e.target.dataset.group)[2];
     kinds.forEach((k) => (e.target.checked ? netHidden.delete(k) : netHidden.add(k)));
     if (netData) drawNetwork();
   });
@@ -826,7 +823,7 @@ function initNetwork() {
 // one checkbox per neuron type present in the network, with its colour
 function renderNetKinds() {
   const present = new Set(Object.values(netData.nodes).map((n) => n.kind));
-  $("#netKinds").innerHTML = NET_GROUPS.filter(([, , kinds]) => kinds.some((k) => present.has(k))).map(([id, label, kinds, when]) => {
+  $("#netKinds").innerHTML = netGroups().filter(([, , kinds]) => kinds.some((k) => present.has(k))).map(([id, label, kinds, when]) => {
     const st = NET_STYLE[kinds[0]];
     return `<label class="chk"><input type="checkbox" data-group="${id}" ${netHidden.has(kinds[0]) ? "" : "checked"}>
       <i class="dot${id === "source" ? " sq" : ""}" style="background:${st.fill};border-color:${st.stroke}"></i>${label}<span class="when">${when}</span></label>`;

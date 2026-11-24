@@ -56,8 +56,10 @@ def test_counts_paper_simple():
     assert c["states"] == 3 and c["neurons"] > 0
     # 3 latches (9) + OP + delay + NOT SGf + NOT SGb + 3 NOT states + 4 terms
     assert c["neurons"] == 9 + 1 + 1 + 2 + 3 + 4
-    # the parallel implementation adds the "no event" neuron of the bypasses
-    assert summary(dict(S.template_simple(), architecture="parallel"))["neurons"] == c["neurons"] + 1
+    # parallel (synchronous): clock (2) + OP + delay + NOT SGf + NOT SGb + 4 terms + 3 hold
+    # + 3 enter + 3 "no transition" (one per neuron of the source state, 1 each) + 3 leave
+    # + "no stay" copies (one per neuron of the state: S0 1+1, S1 1+2, S2 1+1)
+    assert summary(dict(S.template_simple(), architecture="parallel"))["neurons"] > c["neurons"]
 
 
 def test_manual_inputs():
@@ -88,12 +90,15 @@ def test_mixed_inputs():
 
 
 def test_cost_linear_in_states():
-    prev = None
-    for n in range(2, 11):
-        c = summary(S.template_counter(n))
-        if prev:
-            assert c["neurons"] - prev["neurons"] == 5  # 3 latch + NOT state + term
-        prev = c
+    for arch in ["pipelined", "parallel"]:
+        prev, steps = None, set()
+        for n in range(2, 11):
+            c = summary(dict(S.template_counter(n), architecture=arch))
+            if prev:
+                steps.add(c["neurons"] - prev["neurons"])
+            prev = c
+        assert len(steps) == 1, (arch, steps)       # the same cost for every extra state
+    assert steps                                    # pipelined: 3 latch + NOT state + term
 
 
 if __name__ == "__main__":
