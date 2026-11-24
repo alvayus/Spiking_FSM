@@ -112,6 +112,7 @@ function netLayout(net) {
     const o = { kind: n.kind, label: n.label, idx: i };
     if (n.sid) o.sid = n.sid;
     if (n.via) o.via = n.via;
+    if (n.cond) o.cond = n.cond;
     if (n.g) o.g = n.g;
     if (n.tid) Object.assign(o, { tid: n.tid, from: (transById(n.tid) || {}).from, to: (transById(n.tid) || {}).to });
     if (latchOf[i]) Object.assign(o, latchOf[i]);
@@ -467,7 +468,8 @@ function netLabelLines(n) {
   if (["no_event", "enter_or", "leave_or", "relay"].includes(n.kind)) return [n.label];
   if (n.kind === "term") {
     const t = transById(n.tid);
-    return [n.label.replace(/ \(\d+\)$/, ""), (t ? optionText(t.options[n.k]) : "") + (n.via ? ` · via ${n.via}` : "")];
+    const cond = n.cond || (t ? t.options[n.k] : null);
+    return [n.label.replace(/ \(\d+\)$/, ""), (cond ? optionText(cond) : "") + (n.via ? ` · via ${n.via}` : "")];
   }
   return [];
 }

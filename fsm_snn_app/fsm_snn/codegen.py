@@ -96,7 +96,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             via = n.get("via")
             var = unique(f"AND_{a}_{b}" + (f"_{k + 1}" if len(t["options"]) > 1 else "")
                          + (f"_{via.split(' ')[0]}" if via else ""))
-            com = f"AND gate of {a} -> {b}: {option_to_text(t['options'][k])}" + (f" (via {via})" if via else "")
+            com = f"AND gate of {a} -> {b}: {option_to_text(n.get('cond', t['options'][k]))}" + (f" (via {via})" if via else "")
         else:
             var, com = unique("output"), "output neuron"
         where[i] = (var, 0)

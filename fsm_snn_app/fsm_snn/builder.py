@@ -51,21 +51,22 @@ Two implementations (``spec["architecture"]``):
   e + 6                 destination active (ring)
   ====================  =====================================================
 
-  The latches show the state after input spikes at e from e + 5 on, so a term of
-  input spikes at e' reads from them the state after the spikes up to e' - 4.
-  The spikes at e' - 1, e' - 2 and e' - 3 reach it through bypasses.  Each term
-  has up to four neurons, one per case, and at most one of them fires:
+  NOT(state) reads the latch and the "entered" gate, so for input spikes at e' it
+  knows the state after the spikes up to e' - 3.  The spikes at e' - 1 and
+  e' - 2 reach the term neurons through bypasses.  Each term has up to three
+  neurons, one per case, and at most one of them fires:
 
   * via 1 step: the source state was entered by the spikes at e' - 1 (the term
     neurons of those spikes excite it directly);
   * via 2 steps: entered at e' - 2 ("entered" gate) and no change at e' - 1;
-  * via 3 steps: entered at e' - 3 and no change at e' - 2 and e' - 1;
-  * via latch: no change at e' - 3, e' - 2, e' - 1 and the latch says active.
+  * via latch: no change at e' - 2 and e' - 1, and NOT(state) says active.
 
   "No input spikes now" gates cancel the bypasses when there are no input spikes
   at e'.  The 1-step bypass cannot be gathered by an OR gate (there is no time),
   so a term neuron that may receive k of its spikes is inhibited by k copies of
-  each gate that can veto it.
+  each gate that can veto it, where k is the largest number of transitions
+  terms into its source state that can fire together (found by exploring the
+  sets of states that can be active at the same time).
 
 All synaptic delays are chosen automatically so that every signal arrives at
 the step required above.
@@ -262,13 +263,72 @@ def _build_pipelined(s, net):
 
 
 # ------------------------------------------------------------------------- parallel
-VIA = ("latch", "1 step", "2 steps", "3 steps")
+VIA = ("latch", "1 step", "2 steps")
+MAX_EXPLORE = 4096          # sets of active states explored to count the 1-step bypass spikes
+
+
+def _bypass_copies(s, trans, entering):
+    """For each state, the largest number of terms entering it that can fire for the
+    same input spikes, over the sets of states that can be active together. Falls
+    back to the number of terms entering it when the machine is too large."""
+    from itertools import product
+    from .spec import transition_holds
+    inputs = s["inputs"]
+    fallback = {sid: len(v) for sid, v in entering.items()}
+    if len(inputs) > 10:
+        return fallback
+    events = [{i for i, on in zip(inputs, bits) if on} for bits in product((0, 1), repeat=len(inputs))]
+    events = [e for e in events if e]
+    holds = lambda opt, ev: transition_holds(dict(options=[opt]), ev)
+    start = frozenset(x["id"] for x in s["states"] if x["initial"])
+    seen, todo = {start}, [start]
+    best = {sid: 0 for sid in entering}
+    while todo:
+        if len(seen) > MAX_EXPLORE:
+            return fallback
+        act = todo.pop()
+        for ev in events:
+            fired = [(t, k) for t in trans if t["from"] in act for k, o in enumerate(t["options"]) if holds(o, ev)]
+            for sid in entering:
+                best[sid] = max(best[sid], sum(1 for t, _ in fired if t["to"] == sid))
+            tf = {t["id"] for t, _ in fired}
+            left = {t["from"] for t in trans if t["id"] in tf and t["to"] != t["from"]}
+            nxt = frozenset((act - left) | {t["to"] for t in trans if t["id"] in tf})
+            if nxt not in seen:
+                seen.add(nxt)
+                todo.append(nxt)
+    return best
+
+
+def _disjoint(options, order):
+    """The same condition with terms that can never hold together (a term that would
+    overlap an earlier one is split by the literals it lacks), so that at most one term
+    of a transition fires: fewer spikes reach the 1-step bypass."""
+    flip = {ON: OFF, OFF: ON}
+
+    def sharp(a, b):                       # a AND NOT b, as disjoint terms
+        if any(i in a and a[i] != v for i, v in b.items()):
+            return [a]                     # already disjoint
+        out, acc = [], dict(a)
+        for i, v in b.items():
+            if i not in a:
+                out.append({**acc, i: flip[v]})
+                acc[i] = v
+        return out                         # [] when a lies inside b
+    done = []
+    for o in sorted(options, key=len):
+        pieces = [dict(o)]
+        for r in done:
+            pieces = [c for p in pieces for c in sharp(p, r)]
+        done += pieces
+    return [dict(sorted(o.items(), key=lambda kv: order.index(kv[0]))) for o in done] or [{}]
 
 
 def _build_parallel(s, net):
     states = s["states"]
     st_by_id = {st["id"]: st for st in states}
-    trans = [t for t in s["transitions"] if t["from"] in st_by_id and t["to"] in st_by_id]
+    trans = [dict(t, options=_disjoint(t["options"], s["inputs"])) for t in s["transitions"]
+             if t["from"] in st_by_id and t["to"] in st_by_id]
     N = lambda i: ("n", i)
     src = lambda name: ("src", net.input_sources[name])
     op = net.op
@@ -292,29 +352,34 @@ def _build_parallel(s, net):
     entering = {sid: [(t, k) for t in trans for k in range(len(t["options"])) if t["to"] == sid] for sid in st_by_id}
     leaving = {sid: [(t, k) for t in trans for k in range(len(t["options"])) if t["from"] == sid and t["to"] != sid]
                for sid in st_by_id}
-    K = max([len(entering[t["from"]]) for t in trans] + [1])   # copies for the 1-step bypass
+    kcopies = _bypass_copies(s, trans, entering)           # copies for the 1-step bypass
+    # copies of each gate that can veto a "via 1 step" term neuron: as many as the spikes
+    # its source state may receive from the 1-step bypass
+    need = lambda lit: max([kcopies[t["from"]] for t in trans if entering[t["from"]]
+                            for o in t["options"] if lit in o.items()] + [1])
+    K = max([kcopies[t["from"]] for t in trans if entering[t["from"]]] + [1])
 
     delay = net.add_neuron("Delay", "delay")
     net.connect(N(op), delay, "exc", T_GATE - T_OP)
     used_on = sorted({i for t in trans for o in t["options"] for i, v in o.items() if v == ON}, key=s["inputs"].index)
     used_off = sorted({i for t in trans for o in t["options"] for i, v in o.items() if v == OFF}, key=s["inputs"].index)
     not_inp, relay = {}, {}
-    for i in used_on:                                           # NOT gates of the inputs (e+2), K copies
+    for i in used_on:                                           # NOT gates of the inputs (e+2)
         not_inp[i] = []
-        for c in range(K):
+        for c in range(need((i, ON))):
             n = net.add_neuron(f"NOT {i}" + (f" #{c + 1}" if c else ""), "not_input")
             net.connect(N(op), n, "exc", T_GATE - T_OP)
             net.connect(src(i), n, "inh", T_GATE)
             not_inp[i].append(n)
-    for i in used_off:                                          # copies of the inputs (e+1), K of them
-        relay[i] = []
-        for c in range(K):
+    for i in used_off:                                          # copies of the inputs (e+1), besides the input
+        relay[i] = [None]
+        for c in range(1, need((i, OFF))):
             n = net.add_neuron(f"{i} #{c + 1}", "relay")
             net.connect(src(i), n, "exc", 1)
             relay[i].append(n)
     # "no input spikes now" (e'+2): there were input spikes at e'-g and there are none at e'
     nospike = {}
-    for g, copies in ((1, K), (2, 1), (3, 1)):
+    for g, copies in ((1, K), (2, 1)):
         nospike[g] = []
         for c in range(copies):
             n = net.add_neuron(f"No spikes, {g} step{'s' if g > 1 else ''} after" + (f" #{c + 1}" if c else ""),
@@ -323,7 +388,7 @@ def _build_parallel(s, net):
             net.connect(N(op), n, "inh", 1)
             nospike[g].append(n)
     not_st = {}
-    for sid in dict.fromkeys(t["from"] for t in trans):         # NOT of the state from its latch (e+2)
+    for sid in dict.fromkeys(t["from"] for t in trans):         # NOT of the state (e+2), see below
         n = net.add_neuron(f"NOT {name(sid)}", "not_state")
         net.connect(N(op), n, "exc", T_GATE - T_OP)
         for x in net.latches[sid]:
@@ -335,7 +400,8 @@ def _build_parallel(s, net):
         for k in range(len(t["options"])):
             vias = VIA if entering[t["from"]] else VIA[:1]
             base = f"{name(t['from'])}→{name(t['to'])}" + (f" ({k + 1})" if len(t["options"]) > 1 else "")
-            terms[(t["id"], k)] = {v: net.add_neuron(base, "term", via=v, tid=t["id"]) for v in vias}
+            terms[(t["id"], k)] = {v: net.add_neuron(base, "term", via=v, tid=t["id"], cond=t["options"][k])
+                                   for v in vias}
             for n in terms[(t["id"], k)].values():
                 net.terms.append((t["id"], k, n))
     raw = lambda opts: [n for t, k in opts for n in terms[(t["id"], k)].values()]
@@ -345,6 +411,8 @@ def _build_parallel(s, net):
             E[sid] = net.add_neuron(f"{name(sid)} entered", "enter_or", sid=sid)
             for n in raw(entering[sid]):
                 net.connect(N(n), E[sid], "exc", P_OR - T_TERM)
+            if sid in not_st:                                   # entered by the spikes at e'-3
+                net.connect(N(E[sid]), not_st[sid], "inh", 1)   # (e'+1 -> e'+2), before the latch shows it
         if leaving[sid]:
             Lv[sid] = net.add_neuron(f"{name(sid)} left", "leave_or", sid=sid)
             for n in raw(leaving[sid]):
@@ -360,9 +428,11 @@ def _build_parallel(s, net):
                     for c in range(copies):
                         if v == ON:
                             net.connect(N(not_inp[i][c]), n, "inh", T_TERM - T_GATE)
+                        elif v == OFF and c == 0:
+                            net.connect(src(i), n, "inh", T_TERM)
                         elif v == OFF:
                             net.connect(N(relay[i][c]), n, "inh", T_TERM - 1)
-            # via latch: no change at e'-1, e'-2, e'-3 and the latch says the state is active
+            # via latch: no change at e'-1 and e'-2, and NOT(state) says the state is active
             n = T["latch"]
             net.connect(N(delay), n, "exc", T_TERM - T_GATE)
             net.connect(N(not_st[sid]), n, "inh", T_TERM - T_GATE)
@@ -371,12 +441,11 @@ def _build_parallel(s, net):
             for X in (E, Lv):
                 if sid in X:
                     net.connect(N(X[sid]), n, "inh", 1)         # spikes at e'-2: OR at e'+2
-                    net.connect(N(X[sid]), n, "inh", 2)         # spikes at e'-3: OR at e'+1
             veto(n)
             if not entering[sid]:
                 continue
             # via 1 step: entered by the spikes at e'-1 (their terms fire at e'+2)
-            n, ke = T["1 step"], len(entering[sid])
+            n, ke = T["1 step"], max(kcopies[sid], 1)
             for x in raw(entering[sid]):
                 net.connect(N(x), n, "exc", 1)
             for c in range(ke):
@@ -389,16 +458,6 @@ def _build_parallel(s, net):
             for x in change1:
                 net.connect(N(x), n, "inh", 1)
             veto(n)
-            # via 3 steps: entered at e'-3, no change at e'-2 and e'-1
-            n = T["3 steps"]
-            net.connect(N(E[sid]), n, "exc", 2)
-            net.connect(N(nospike[3][0]), n, "inh", 1)
-            for x in change1:
-                net.connect(N(x), n, "inh", 1)
-            net.connect(N(E[sid]), n, "inh", 1)
-            if sid in Lv:
-                net.connect(N(Lv[sid]), n, "inh", 1)
-            veto(n)
     # set (from "entered", e+5) and reset (terms at e+4, "left" at e+5)
     for sid in st_by_id:
         n1, a, b = net.latches[sid]
@@ -407,6 +466,8 @@ def _build_parallel(s, net):
         for x in raw(leaving[sid]):
             net.connect(N(x), a, "inh", T_RESET - T_TERM)
             net.connect(N(x), b, "inh", T_RESET - T_TERM)
+            # a set still pending from the previous spikes (entered, then left at once)
+            net.connect(N(x), n1, "inh", T_RESET - T_TERM)
         if sid in Lv:
             net.connect(N(Lv[sid]), a, "inh", 1)
             net.connect(N(Lv[sid]), b, "inh", 1)
