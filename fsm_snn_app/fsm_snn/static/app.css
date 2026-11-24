@@ -309,14 +309,6 @@ details.card[open] > summary { margin-bottom: 10px; }
 }
 .net .nn .nl.sub { font: 10.5px "Cambria Math", "Segoe UI Symbol", serif; fill: #6b4f7a; }
 .net .nn.pinned .nb { stroke: var(--accent); stroke-width: 3.5; }
-.trans-list { display: grid; gap: 4px; }
-.trans-item { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; align-items: baseline; width: 100%; padding: 6px 9px;
-  border: 1px solid var(--line); border-radius: 8px; background: #fff; font: inherit; font-size: 12.5px; text-align: left; color: var(--ink); cursor: pointer; }
-.trans-item b { font-weight: 600; white-space: nowrap; }
-.trans-item .expr { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #475569; }
-.trans-item small { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
-.trans-item.hover { border-color: #b9c4d0; background: #f8fafc; }
-.trans-item.active { border-color: var(--accent); background: var(--accent-soft); }
 .net .syn .line { fill: none; stroke-width: 1.3; }
 .net .syn.exc .line { stroke: var(--exc); }
 .net .syn.inh .line { stroke: var(--inh); }
@@ -328,6 +320,9 @@ details.card[open] > summary { margin-bottom: 10px; }
 #netLayer.focus .byp-dot { opacity: .07; }
 #netLayer.focus .nn:not(.hi) { opacity: .25; }
 #netLayer.focus .syn.hi .line { stroke-width: 2.2; }
+#netLayer .syn.sel .line { stroke-width: 3; }
+.net .syn { cursor: pointer; }
+.syn-kv { margin-top: 8px; }
 #netLayer .syn.path .line { stroke: var(--accent); stroke-width: 2.4; }
 .syn-icon { flex: none; }
 .net-title { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
