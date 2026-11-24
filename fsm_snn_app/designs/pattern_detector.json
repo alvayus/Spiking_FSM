@@ -20,17 +20,6 @@
     },
     {
       "id": "t1",
-      "from": "s0",
-      "to": "s0",
-      "options": [
-        {
-          "A": "on"
-        }
-      ],
-      "expr": "A"
-    },
-    {
-      "id": "t2",
       "from": "s1",
       "to": "s2",
       "options": [
@@ -46,7 +35,7 @@
       "expr": "(C ∨ D) ∧ ¬B"
     },
     {
-      "id": "t3",
+      "id": "t2",
       "from": "s1",
       "to": "s0",
       "options": [
@@ -61,7 +50,7 @@
       "expr": "B ∨ (¬C ∧ ¬D)"
     },
     {
-      "id": "t4",
+      "id": "t3",
       "from": "s2",
       "to": "s3",
       "options": [
@@ -73,7 +62,7 @@
       "expr": "B ∧ C"
     },
     {
-      "id": "t5",
+      "id": "t4",
       "from": "s2",
       "to": "s0",
       "options": [
@@ -87,7 +76,7 @@
       "expr": "¬B ∨ ¬C"
     },
     {
-      "id": "t6",
+      "id": "t5",
       "from": "s3",
       "to": "s0",
       "options": [
@@ -112,28 +101,28 @@
       "id": "s0",
       "name": "S0",
       "x": 396,
-      "y": 484,
+      "y": 88,
       "initial": true
     },
     {
       "id": "s1",
       "name": "S1",
-      "x": 198,
-      "y": 308,
+      "x": 528,
+      "y": 242,
       "initial": false
     },
     {
       "id": "s2",
       "name": "S2",
       "x": 396,
-      "y": 132,
+      "y": 374,
       "initial": false
     },
     {
       "id": "s3",
       "name": "Detected",
-      "x": 594,
-      "y": 308,
+      "x": 264,
+      "y": 242,
       "initial": false
     }
   ]
