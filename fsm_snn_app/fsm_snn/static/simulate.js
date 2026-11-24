@@ -98,6 +98,8 @@ async function simulate() {
   try {
     const r = await api("/api/simulate", { spec, params: p });
     if (!r.ok) { toast((r.errors || ["Simulation error"]).join(" · "), 6000); if (r.invalid_spec) showTab("design"); return; }
+    // name the neurons as in the Network tab (with any names given there)
+    try { if (await fetchNetwork()) r.netKey = netKey; } catch (e) { /* keep the netlist labels */ }
     lastResult = r; renderResults();
   } catch (e) { toast("Could not reach the server: " + e.message, 6000); }
   finally { busy(false); }
@@ -168,17 +170,26 @@ const RASTER_COLOR = {
 };
 const RASTER_ORDER = ["input", "init", "op", "delay", "not_input", "not_state", "term", "latch", "state", "output"];
 const isSourceKind = (k) => k === "input" || k === "init" || k === "op";
+// Name of a raster row: with "All neurons", the name the neuron has in the Network tab.
+function rowName(row, r) {
+  if (!netData || netKey !== r.netKey) return row.label;
+  const n = row.idx !== undefined ? netData.nodes["n" + row.idx]
+    : row.kind === "input" ? Object.values(netData.nodes).find((x) => x.kind === "input" && x.label === row.label) : null;
+  return n ? netName(n) : row.label;
+}
 
 function drawRaster() {
   const r = lastResult; if (!r) return;
   const showAll = $("#showAll").checked, showExp = r.backend !== "ideal" && $("#showExpected").checked;
   // bottom-to-top order (row 0 is drawn at the bottom)
+  // all neurons: the inputs (spike sources) and every neuron, grouped by kind as in the Network tab
   const rows = showAll
-    ? r.all_rows.map((x, i) => [x, i]).sort((a, b) => RASTER_ORDER.indexOf(a[0].kind) - RASTER_ORDER.indexOf(b[0].kind) || a[1] - b[1]).map((x) => x[0])
+    ? r.rows.filter((x) => x.kind === "input").concat(r.all_rows.map((x, i) => [x, i])
+        .sort((a, b) => RASTER_ORDER.indexOf(a[0].kind) - RASTER_ORDER.indexOf(b[0].kind) || a[1] - b[1]).map((x) => x[0]))
     : r.rows;
   const n = rows.length, zoom = +$("#zoom").value;
   const avail = Math.max(600, $("#rasterScroll").clientWidth - 2);
-  const left = showAll ? 130 : 70, right = 16, top = 14, rowH = showAll ? 14 : 26;
+  const left = showAll ? 170 : 70, right = 16, top = 14, rowH = showAll ? 14 : 26;
   const plotH = (n + 1) * rowH;                       // half a row of margin above and below
   const T = r.duration, dt = r.dt;
   const W = Math.max(avail, (avail - left - right) * zoom + left + right);
@@ -198,7 +209,8 @@ function drawRaster() {
   rows.forEach((row, k) => {
     const y = Y(k), col = RASTER_COLOR[row.kind] || "#334155";
     parts.push(`<line x1="${left - 6}" x2="${left}" y1="${y}" y2="${y}" stroke="#111" stroke-width="1.4"/>`);
-    parts.push(`<text x="${left - 10}" y="${y + 4}" text-anchor="end">${esc(row.label.length > 20 ? row.label.slice(0, 19) + "…" : row.label)}</text>`);
+    const name = rowName(row, r);
+    parts.push(`<text x="${left - 10}" y="${y + 4}" text-anchor="end">${esc(name.length > 26 ? name.slice(0, 25) + "…" : name)}<title>${esc(name)}</title></text>`);
     const exp = new Set(row.expected || []), got = new Set(row.spikes);
     const extra = row.expected ? row.spikes.filter((t) => !exp.has(t)) : [];
     const missing = row.expected ? row.expected.filter((t) => !got.has(t)) : [];
@@ -209,9 +221,9 @@ function drawRaster() {
     if (showExp && row.expected) for (const t of row.expected) parts.push(`<rect x="${X(t) - bw * 1.4}" y="${y - tick - 2}" width="${bw * 2.8}" height="${2 * tick + 4}" fill="#e2e8f0"/>`);
     for (const t of row.spikes) {
       const bad = row.expected && !exp.has(t);
-      parts.push(`<rect x="${X(t) - bw / 2}" y="${y - tick}" width="${bw}" height="${2 * tick}" fill="${bad ? "var(--extra)" : col}"><title>${esc(row.label)}: ${fmt(t * dt, 1)} ms${bad ? " (extra spike)" : ""}</title></rect>`);
+      parts.push(`<rect x="${X(t) - bw / 2}" y="${y - tick}" width="${bw}" height="${2 * tick}" fill="${bad ? "var(--extra)" : col}"><title>${esc(name)}: ${fmt(t * dt, 1)} ms${bad ? " (extra spike)" : ""}</title></rect>`);
     }
-    for (const t of missing) parts.push(`<rect x="${X(t) - bw / 2 - .75}" y="${y - tick}" width="${bw + 1.5}" height="${2 * tick}" fill="none" stroke="var(--miss)" stroke-width="1.5"><title>${esc(row.label)}: ${fmt(t * dt, 1)} ms (missing spike)</title></rect>`);
+    for (const t of missing) parts.push(`<rect x="${X(t) - bw / 2 - .75}" y="${y - tick}" width="${bw + 1.5}" height="${2 * tick}" fill="none" stroke="var(--miss)" stroke-width="1.5"><title>${esc(name)}: ${fmt(t * dt, 1)} ms (missing spike)</title></rect>`);
   });
   // frame and time axis (ms)
   const yA = top + plotH;

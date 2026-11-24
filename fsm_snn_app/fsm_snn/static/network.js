@@ -443,22 +443,30 @@ function netDetails() {
 
 function netFit() { if (netData) netVp.fit(netData.box, 30, 1.4); }
 
-async function loadNetwork() {
+// Build the network of the current machine (also used by the Simulate tab, to name the
+// neurons as here). The drawing is refreshed the next time the tab is shown.
+let netCountsData = null, netErrors = null, netFresh = false;
+async function fetchNetwork() {
   const key = netKeyOf(spec);
-  if (key === netKey && netData) { drawNetwork(); return; }
+  if (key === netKey && netData) return true;
   const r = await api("/api/network", { spec });
-  if (!r.ok) {
-    netData = null; netKey = null;
+  if (!r.ok) { netData = null; netKey = null; netErrors = r.errors || ["Unknown error"]; return false; }
+  netData = netLayout(r.net); netKey = key; netCountsData = r.counts; netFresh = true;
+  if (netPinned && !netData.nodes[netPinned]) netPinned = null;
+  return true;
+}
+async function loadNetwork() {
+  if (!(await fetchNetwork())) {
     $("#netLayer").innerHTML = "";
     $("#netEmpty").hidden = false;
-    $("#netEmpty").innerHTML = `<h2>The network cannot be built yet</h2><p>${(r.errors || ["Unknown error"]).map(esc).join("<br>")}</p><p>Fix it in the <b>Design</b> tab.</p>`;
+    $("#netEmpty").innerHTML = `<h2>The network cannot be built yet</h2><p>${netErrors.map(esc).join("<br>")}</p><p>Fix it in the <b>Design</b> tab.</p>`;
     $("#netCounts").innerHTML = "—";
     return;
   }
   $("#netEmpty").hidden = true;
-  netData = netLayout(r.net); netKey = key;
-  if (netPinned && !netData.nodes[netPinned]) netPinned = null;
-  const c = r.counts;
+  if (!netFresh) { drawNetwork(); return; }
+  netFresh = false;
+  const c = netCountsData;
   $("#netCounts").innerHTML = `<dl class="kv counts">
     <dt>Neurons<span>plus ${c.sources} spike source${c.sources === 1 ? "" : "s"}</span></dt><dd class="big">${c.neurons}</dd>
     <dt>Synapses<span>${c.excitatory} excitatory · ${c.inhibitory} inhibitory</span></dt><dd class="big">${c.synapses}</dd></dl>`;

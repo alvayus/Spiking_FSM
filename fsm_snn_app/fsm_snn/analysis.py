@@ -126,7 +126,8 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     if net.output is not None:
         rows.append(dict(label="Output", kind="output", spikes=out_spk,
                          expected=expected_out))
-    all_rows = [dict(label=n["label"], kind=n["kind"], spikes=sorted(spikes.get(i, [])))
+    # idx: position in the netlist, so the page can name each neuron as the Network tab does
+    all_rows = [dict(label=n["label"], kind=n["kind"], idx=i, spikes=sorted(spikes.get(i, [])))
                 for i, n in enumerate(net.neurons)]
 
     n_ev = len(events)
