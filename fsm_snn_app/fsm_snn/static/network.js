@@ -58,7 +58,7 @@ const netHidden = new Set();       // hidden neuron kinds
 const NR = 15;                     // neuron radius
 const GAP = 1.5;                   // space between the end of a synapse and the neuron it reaches
 const COLX = { src: 0, op: 160, gate: 330, notst: 500, term: 690, latch: 920, out: 1150 };
-const BYPASS_LANE = 6;             // spacing of the vertical runs of the bypasses
+const BYPASS_LANE = 9;             // spacing of the bypass trunks (one per AND gate)
 const LATCH_DX = 84;               // ring neurons at COLX.latch, set neuron N1 to their right
 const TERM_DY = 64;                // vertical spacing of stacked neurons
 const CLEAR = NR + 6;              // clearance a wire keeps from a neuron
@@ -80,8 +80,9 @@ function netLayout(net) {
   // their vertical runs (one lane each)
   const X = { ...COLX };
   const termSet = new Set(net.terms.map((t) => t[2]));
-  const nBypass = net.conns.filter((c) => c[0][0] === "n" && termSet.has(c[0][1]) && termSet.has(c[1])).length;
-  const corridor = nBypass ? 20 + BYPASS_LANE * nBypass : 0;
+  // one lane per AND gate that has bypasses towards other AND gates
+  const nTrunks = new Set(net.conns.filter((c) => c[0][0] === "n" && termSet.has(c[0][1]) && termSet.has(c[1])).map((c) => c[0][1])).size;
+  const corridor = nTrunks ? 26 + BYPASS_LANE * nTrunks : 0;
   X.latch += corridor; X.out += corridor;
   const nodes = {};
   const add = (key, o) => (nodes[key] = { key, ...o });
@@ -124,7 +125,9 @@ function netLayout(net) {
   const stack = (list, x, dy) => list.forEach((n, k) => Object.assign(n, { x, y: mid + (k - (list.length - 1) / 2) * dy }));
   stack(all.filter((n) => n.src), X.src, 70);
   stack(all.filter((n) => n.kind === "op"), X.op, 70);
-  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input"), all.filter((n) => n.kind === "no_event")), X.gate, TERM_DY);
+  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input")), X.gate, TERM_DY);
+  // "no spike at t+1" (bypasses): below everything, its trunk goes up on the left of the AND gates
+  for (const n of all) if (n.kind === "no_event") Object.assign(n, { x: X.notst, y: H + 60 });
   stack(all.filter((n) => n.kind === "output"), X.out, 70);
   for (const n of all) {
     if (n.x === undefined) Object.assign(n, { x: X.out, y: mid });
@@ -137,7 +140,8 @@ function netLayout(net) {
     const P = nodes[e.from], Q = nodes[e.to];
     // bypasses of the parallel implementation: between AND gates, towards NOT(state), "no event"
     e.bypass = (P.kind === "term" && (Q.kind === "term" || Q.kind === "not_state")) || P.kind === "no_event";
-    if (P.kind === "term" && Q.kind === "term") e.type = "bypassTerm";
+    if (P.kind === "no_event" && Q.kind === "term") e.type = "noEventBus";
+    else if (P.kind === "term" && Q.kind === "term") e.type = "bypassTerm";
     else if (P.kind === "term" && Q.kind === "not_state") e.type = "bypassBack";
     else if (e.from === e.to) e.type = "self";
     else if (P.kind === "latch" && Q.kind === "not_state") { e.type = P.j === 1 ? "arcTop" : "arcBottom"; e.band = bands[P.sid]; }
@@ -147,7 +151,7 @@ function netLayout(net) {
     return e;
   });
   routeWires(edges.filter((e) => e.type === "wire"), nodes, all);
-  routeBypasses(edges.filter((e) => e.type === "bypassTerm" || e.type === "bypassBack"), nodes, X);
+  routeBypasses(edges.filter((e) => e.type === "bypassTerm" || e.type === "bypassBack" || e.type === "noEventBus"), nodes, X);
 
   const xs = all.map((n) => n.x), ys = all.map((n) => n.y);
   const box = { x0: Math.min(...xs) - 50, y0: Math.min(0, ...ys) - 50, x1: Math.max(...xs) + 90, y1: Math.max(H, ...ys) + 40 };
@@ -220,44 +224,85 @@ function routeWires(wires, nodes, all) {
   }
 }
 
-// Bypasses (parallel implementation), with right angles like the other synapses. They
-// leave the AND gate from below. Between AND gates: down, right to their own lane in the
-// corridor on the right of the AND column, up or down, and left into the lower right side
-// of the target (its label is above, the other synapses use the left and the middle of
-// the right side). Towards NOT(state): down, left to a lane on the right of the NOT
-// column, and into the bottom of the NOT gate.
+// Bypasses (parallel implementation), drawn like a bus: every AND gate has one trunk
+// for its bypasses towards AND gates and one towards NOT gates, and each synapse is a
+// branch of it (a dot marks where branches split off). Right angles only.
+// * towards AND gates: from the bottom of the gate, right to the trunk (its own lane in
+//   the corridor on the right of the AND column), along it, and left into the lower right
+//   side of the target (its label is above, the other synapses use the left side and the
+//   middle of the right side);
+// * towards NOT(state): from the bottom of the gate, left to the trunk (its own lane next
+//   to the NOT column), along it, and up into the bottom of the NOT gate.
 function routeBypasses(edges, nodes, X) {
-  const ports = (list, key, lo, hi) => {             // spread the ends on one side of a neuron
-    const by = {};
-    for (const e of list) (by[e[key]] = by[e[key]] || []).push(e);
-    return by;
-  };
-  const spread = (by, set, lo, hi, order) => Object.values(by).forEach((l) => {
-    l.sort(order);
-    l.forEach((e, k) => (e[set] = l.length === 1 ? (lo + hi) / 2 : lo + (hi - lo) * k / (l.length - 1)));
-  });
   const yOf = (k) => nodes[k].y;
-  const tt = edges.filter((e) => e.type === "bypassTerm"), tb = edges.filter((e) => e.type === "bypassBack");
-  // start ports (bottom of the AND gate): right half towards AND gates, left half towards NOT gates
-  spread(ports(tt, "from"), "sx", 0, 8, (a, b) => yOf(a.to) - yOf(b.to));
-  spread(ports(tb, "from"), "sx", -9, -2, (a, b) => yOf(b.to) - yOf(a.to));
-  spread(ports(tt, "to"), "ey", 6, 12, (a, b) => yOf(a.from) - yOf(b.from));
-  spread(ports(tb, "to"), "ex", 3, 10, (a, b) => yOf(a.from) - yOf(b.from));
   const below = (n, dx) => n.y + Math.sqrt(Math.max(0, NR * NR - dx * dx));
-  // lanes: short runs closest to the AND column
-  tt.sort((a, b) => Math.abs(yOf(a.from) - yOf(a.to)) - Math.abs(yOf(b.from) - yOf(b.to)));
-  tt.forEach((e, k) => {
-    const P = nodes[e.from], Q = nodes[e.to], x = X.term + NR + 14 + BYPASS_LANE * k;
-    const y1 = P.y + NR + 6 + e.sx * 0.6, y2 = Q.y + e.ey;
-    const xe = Q.x + Math.sqrt(Math.max(0, NR * NR - e.ey * e.ey)) + GAP;
-    e.points = [[P.x + e.sx, below(P, e.sx)], [P.x + e.sx, y1], [x, y1], [x, y2], [xe, y2]];
-  });
-  tb.sort((a, b) => Math.abs(yOf(a.from) - yOf(a.to)) - Math.abs(yOf(b.from) - yOf(b.to)));
-  tb.forEach((e, k) => {
-    const P = nodes[e.from], Q = nodes[e.to], x = X.notst + NR + 10 + 4 * k;
-    const y1 = P.y + NR + 8 + 4 * k, y2 = Math.max(Q.y + NR + 10 + 4 * k, y1);
-    e.points = [[P.x + e.sx, below(P, e.sx)], [P.x + e.sx, y1], [x, y1], [x, y2], [Q.x + e.ex, y2], [Q.x + e.ex, below(Q, e.ex) + GAP]];
-  });
+  const byFrom = (list) => {
+    const m = new Map();
+    for (const e of list) { if (!m.has(e.from)) m.set(e.from, []); m.get(e.from).push(e); }
+    return [...m.entries()].sort((p, q) => yOf(p[0]) - yOf(q[0]));
+  };
+  const spreadTo = (list, set, lo, hi, order) => {
+    const m = {};
+    for (const e of list) (m[e.to] = m[e.to] || []).push(e);
+    for (const l of Object.values(m)) {
+      l.sort(order);
+      l.forEach((e, k) => (e[set] = l.length === 1 ? (lo + hi) / 2 : lo + (hi - lo) * k / (l.length - 1)));
+    }
+  };
+  const tt = edges.filter((e) => e.type === "bypassTerm"), tb = edges.filter((e) => e.type === "bypassBack");
+  // ---- "no spike at t+1": right, then up along the left of the AND column, into the lower
+  // left side of every AND gate
+  for (const e of edges.filter((x) => x.type === "noEventBus")) {
+    const P = nodes[e.from], Q = nodes[e.to], x = X.term - NR - 14, dy = 9;
+    const y2 = Q.y + dy, xe = Q.x - Math.sqrt(NR * NR - dy * dy) - GAP;
+    e.points = [[P.x + NR + 0.5, P.y], [x, P.y], [x, y2], [xe, y2]];
+    e.trunk = { x, from: P.y }; e.branch = y2;
+  }
+
+  // ---- towards AND gates: one lane per source gate, ordered top to bottom
+  const ttFrom = byFrom(tt);
+  ttFrom.forEach(([, list], k) => list.forEach((e) => (e.lane = k)));
+  spreadTo(tt, "ey", 5, 13, (a, b) => a.lane - b.lane);
+  for (const [from, list] of ttFrom) {
+    const P = nodes[from], x = X.term + NR + 16 + BYPASS_LANE * list[0].lane;
+    const sx = 5, y1 = P.y + NR + 7;
+    for (const e of list) {
+      const Q = nodes[e.to], y2 = Q.y + e.ey;
+      const xe = Q.x + Math.sqrt(Math.max(0, NR * NR - e.ey * e.ey)) + GAP;
+      e.points = [[P.x + sx, below(P, sx)], [P.x + sx, y1], [x, y1], [x, y2], [xe, y2]];
+      e.trunk = { x, from: y1 }; e.branch = y2;
+    }
+  }
+  // ---- towards NOT(state): one lane per source gate next to the NOT column
+  const tbFrom = byFrom(tb);
+  tbFrom.forEach(([, list], k) => list.forEach((e) => (e.lane = k)));
+  spreadTo(tb, "ex", 3, 11, (a, b) => a.lane - b.lane);
+  for (const [from, list] of tbFrom) {
+    const P = nodes[from], k = list[0].lane, x = X.notst + NR + 12 + 5 * k;
+    const sx = -5, y1 = P.y + NR + 7;
+    for (const e of list) {
+      const Q = nodes[e.to], y2 = Q.y + NR + 9 + 4 * e.lane % 12;
+      e.points = [[P.x + sx, below(P, sx)], [P.x + sx, y1], [x, y1], [x, y2], [Q.x + e.ex, y2], [Q.x + e.ex, below(Q, e.ex) + GAP]];
+      e.trunk = { x, from: y1 }; e.branch = y2;
+    }
+  }
+}
+
+// Dots where the branches of a bypass trunk split off (not at its two ends).
+function bypassDots(edges) {
+  const trunks = {};
+  for (const e of edges) {
+    if (!e.trunk) continue;
+    const key = e.from + ":" + e.type;
+    (trunks[key] = trunks[key] || { x: e.trunk.x, ys: [e.trunk.from], edges: [] }).ys.push(e.branch);
+    trunks[key].edges.push(e);
+  }
+  const dots = [];
+  for (const t of Object.values(trunks)) {
+    const lo = Math.min(...t.ys), hi = Math.max(...t.ys);
+    for (const y of new Set(t.ys)) if (y > lo + 0.5 && y < hi - 0.5) dots.push({ x: t.x, y, from: t.edges[0].from });
+  }
+  return dots;
 }
 
 // polyline with rounded corners
@@ -282,7 +327,7 @@ function netEdgePath(e, D) {
     const sg = e.type === "arcTop" ? -1 : 1, yy = sg < 0 ? e.band.top + 18 : e.band.bottom - 18;
     return roundedPath([[P.x, P.y + sg * (NR + 0.5)], [P.x, yy], [Q.x, yy], [Q.x, Q.y + sg * (NR + GAP)]], 10);
   }
-  if (e.type === "bypassTerm" || e.type === "bypassBack") return roundedPath(e.points, 5);
+  if (e.type === "bypassTerm" || e.type === "bypassBack" || e.type === "noEventBus") return roundedPath(e.points, 5);
   return roundedPath(latchRoute(e, P, Q), 5);
 }
 
@@ -436,7 +481,10 @@ function drawNetwork() {
     return `<g class="nn" data-n="${n.key}" transform="translate(${n.x},${n.y})"><title>${esc(netName(n) + " — " + st.name)}</title>
       ${shape}<text class="ng" style="font-size:${gsize}px" ${ed(id + "#g", netGlyph(n))}>${esc(glyph)}</text>${lbl}</g>`;
   });
-  $("#netLayer").innerHTML = parts.join("") + `<g>${eparts.join("")}</g><g>${nparts.join("")}</g>`;
+  // junction dots of the bypass trunks (only for the visible bypasses)
+  const shownBypass = D.edges.filter((e) => e.trunk && show.bypass && show[e.rec] && visible(D.nodes[e.from]) && visible(D.nodes[e.to]));
+  const dots = bypassDots(shownBypass).map((p) => `<circle class="byp-dot" data-from="${p.from}" cx="${p.x}" cy="${p.y}" r="2.4"/>`).join("");
+  $("#netLayer").innerHTML = parts.join("") + `<g>${eparts.join("")}${dots}</g><g>${nparts.join("")}</g>`;
   $("#btnNetReset").hidden = !spec.net_labels;
   netHighlight();
 }

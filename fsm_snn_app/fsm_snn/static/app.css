@@ -314,6 +314,8 @@ details.card[open] > summary { margin-bottom: 10px; }
 .net .syn .hit { fill: none; stroke: transparent; stroke-width: 9; }
 .net .syn, .net .nn { transition: opacity .12s; }
 #netLayer.focus .syn:not(.hi) { opacity: .07; }
+.net .byp-dot { fill: var(--bypass); }
+#netLayer.focus .byp-dot { opacity: .07; }
 #netLayer.focus .nn:not(.hi) { opacity: .25; }
 #netLayer.focus .syn.hi .line { stroke-width: 2.2; }
 #netLayer .syn.path .line { stroke: var(--accent); stroke-width: 2.4; }
