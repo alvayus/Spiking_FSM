@@ -20,6 +20,17 @@
     },
     {
       "id": "t1",
+      "from": "s0",
+      "to": "s0",
+      "options": [
+        {
+          "A": "on"
+        }
+      ],
+      "expr": "A"
+    },
+    {
+      "id": "t2",
       "from": "s1",
       "to": "s2",
       "options": [
@@ -35,7 +46,7 @@
       "expr": "(C ∨ D) ∧ ¬B"
     },
     {
-      "id": "t2",
+      "id": "t3",
       "from": "s1",
       "to": "s0",
       "options": [
@@ -50,7 +61,7 @@
       "expr": "B ∨ (¬C ∧ ¬D)"
     },
     {
-      "id": "t3",
+      "id": "t4",
       "from": "s2",
       "to": "s3",
       "options": [
@@ -62,7 +73,7 @@
       "expr": "B ∧ C"
     },
     {
-      "id": "t4",
+      "id": "t5",
       "from": "s2",
       "to": "s0",
       "options": [
@@ -76,7 +87,7 @@
       "expr": "¬B ∨ ¬C"
     },
     {
-      "id": "t5",
+      "id": "t6",
       "from": "s3",
       "to": "s0",
       "options": [
