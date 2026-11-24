@@ -8,7 +8,7 @@ const OP = { not: "¬", and: "∧", or: "∨" };
 function literals(opt) {
   return spec.inputs.filter((i) => opt[i]).map((i) => (opt[i] === "on" ? i : OP.not + i));
 }
-function optionText(opt) { return literals(opt).join(` ${OP.and} `) || "any event"; }
+function optionText(opt) { return literals(opt).join(` ${OP.and} `) || "any input spike"; }
 // Condition as typed by the user (t.expr) or, failing that, as a sum of products.
 function transLabel(t) {
   if (t.expr) return t.expr;

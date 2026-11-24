@@ -74,7 +74,7 @@ def run(spec: dict, params: dict | None = None) -> dict:
     res.pop("reference")
     notes = []
     if inp.get("dropped"):
-        notes.append(f"{inp['dropped']} random event(s) were left out because they fell less than "
+        notes.append(f"{inp['dropped']} random spike time(s) were left out because they fell less than "
                      f"{max(int(p['min_gap']), 1)} steps (the minimum spacing) from one of the typed spikes.")
     out = dict(ok=True, warnings=warnings + res.pop("warnings"), notes=notes, summary=summary(s),
                duration=duration, dt=float(p["dt"]), backend=p["backend"], seed=int(p["seed"]), mode=p["mode"],

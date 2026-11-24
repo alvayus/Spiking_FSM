@@ -84,11 +84,11 @@ INH_RATIO = 2           # inhibitory / excitatory weight (DEFAULT_WEIGHTS of pyn
 
 ARCHITECTURES = {
     "pipelined": dict(label="Pipelined", min_event_gap=3,
-                      desc="The paradigm of the manuscript: each transition reads the state "
-                           "stored in the latches. Input events at least 3 steps apart."),
+                      desc="Each transition reads the state from the latches. "
+                           "Input spikes at least 3 steps apart."),
     "parallel": dict(label="Parallel (bypasses)", min_event_gap=1,
-                     desc="Bypasses forward the transitions of the previous events, as in the "
-                          "pattern detector of the manuscript. Input events at any spacing."),
+                     desc="Bypasses pass each transition on to the next one. "
+                          "Input spikes at any spacing."),
 }
 DEFAULT_ARCHITECTURE = "parallel"
 
@@ -229,7 +229,7 @@ def build(spec: dict) -> Netlist:
     # ---- "no event" neuron of the bypasses: an event at e not followed by one at e+1
     no_next = None
     if parallel:
-        n = net.add_neuron("No event at t+1", "no_event")
+        n = net.add_neuron("No spike at t+1", "no_event")
         net.connect(("n", net.op), n, "exc", 2)      # OP of the event at e (e+1) -> e+3
         net.connect(("n", net.op), n, "inh", 1)      # OP of an event at e+1 (e+2) -> e+3
         no_next = n

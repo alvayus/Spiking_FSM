@@ -140,15 +140,15 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     ms = lambda steps: f"{steps * dt:g} ms"
     early = [e for e, _ in events if e <= INIT_STEP + 2]
     if early:
-        warnings.append(f"{len(early)} event(s) arrive before the initial states are set "
+        warnings.append(f"{len(early)} input spike time(s) arrive before the initial states are set "
                         f"(step {INIT_STEP + 2}, {ms(INIT_STEP + 2)} with a {dt:g} ms time step); "
                         "they are not evaluated correctly.")
     gap = min_event_gap(s)
     gaps = check_gaps(events, gap)
     if gaps:
-        warnings.append(f"{len(gaps)} events arrive less than {gap} steps "
+        warnings.append(f"{len(gaps)} input spike times arrive less than {gap} steps "
                         f"({ms(gap)} with a {dt:g} ms time step) after the previous one; "
-                        f"the {architecture(s)} network only guarantees events from that spacing on "
+                        f"the {architecture(s)} network only guarantees input spikes from that spacing on "
                         "(the parallel implementation accepts any spacing).")
 
     # ---- raster for the UI --------------------------------------------------------

@@ -125,6 +125,9 @@
           <!-- fixed size heads whose tip / far edge is exactly the end of the synapse -->
           <marker id="synExc" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path d="M0,1 L10,5 L0,9 z" fill="#475569"/></marker>
           <marker id="synInh" viewBox="0 0 10 10" refX="9.2" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><circle cx="5" cy="5" r="4" fill="#fff" stroke="#b85450" stroke-width="1.6"/></marker>
+          <!-- bypasses (parallel implementation): same heads in the bypass colour -->
+          <marker id="synExcB" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto"><path d="M0,1 L10,5 L0,9 z" fill="#7b4fbf"/></marker>
+          <marker id="synInhB" viewBox="0 0 10 10" refX="9.2" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto"><circle cx="5" cy="5" r="4" fill="#fff" stroke="#7b4fbf" stroke-width="1.8"/></marker>
         </defs>
         <g id="netLayer"></g>
       </svg>
@@ -145,10 +148,15 @@
             <svg class="syn-icon" width="30" height="12"><line x1="1" y1="6" x2="21" y2="6" stroke="#475569" stroke-width="1.5"/><path d="M20,2 L29,6 L20,10 z" fill="#475569"/></svg>Excitatory</label>
           <label class="chk"><input type="checkbox" id="netInh" checked>
             <svg class="syn-icon" width="30" height="12"><line x1="1" y1="6" x2="21" y2="6" stroke="#b85450" stroke-width="1.5"/><circle cx="25" cy="6" r="4" fill="#fff" stroke="#b85450" stroke-width="1.6"/></svg>Inhibitory</label>
-          <label class="chk" id="netBypassField"><input type="checkbox" id="netBypass" checked>
-            <svg class="syn-icon" width="30" height="12"><line x1="1" y1="6" x2="29" y2="6" stroke="#475569" stroke-width="1.5" stroke-dasharray="4 3"/></svg>Bypasses (parallel)</label>
+          <div id="netBypassField">
+            <label class="chk"><input type="checkbox" id="netBypass" checked>Bypasses</label>
+            <div class="sub-legend">
+              <span><svg class="syn-icon" width="30" height="12"><line x1="1" y1="6" x2="21" y2="6" stroke="#7b4fbf" stroke-width="1.6" stroke-dasharray="4 2.5"/><path d="M20,2 L29,6 L20,10 z" fill="#7b4fbf"/></svg>excitatory</span>
+              <span><svg class="syn-icon" width="30" height="12"><line x1="1" y1="6" x2="21" y2="6" stroke="#7b4fbf" stroke-width="1.6" stroke-dasharray="4 2.5"/><circle cx="25" cy="6" r="4" fill="#fff" stroke="#7b4fbf" stroke-width="1.8"/></svg>inhibitory</span>
+            </div>
+          </div>
         </div>
-        <p class="note">Columns follow the order in which the neurons spike after an input event at time step <i>t</i>: OP at <i>t</i> + 1, NOT gates and delay at <i>t</i> + 2, AND gates at <i>t</i> + 3, then the latches.</p>
+        <p class="note">Columns follow the order in which the neurons spike after an input spike at time step <i>t</i>: OP at <i>t</i> + 1, NOT gates and delay at <i>t</i> + 2, AND gates at <i>t</i> + 3, then the latches.</p>
       </div>
     </aside>
   </section>
@@ -169,14 +177,14 @@
           <button data-mode="manual">Manual</button>
         </div>
         <div id="randomFields">
-          <p class="note">The inputs are generated as a sequence of <b>input events</b>: time steps in which one or more inputs spike at the same time. The machine is only evaluated at these steps. A new random sequence is generated on every run.</p>
-          <label class="field">Number of input events <input id="nEvents" type="number" min="1" value="60"></label>
+          <p class="note">Random input spikes: at each chosen time step one or more inputs spike at the same time, and the machine is evaluated only at these steps. A new random sequence is generated on every run.</p>
+          <label class="field">Number of time steps with input spikes <input id="nEvents" type="number" min="1" value="60"></label>
           <div class="row2">
             <label class="field">Min. spacing <span class="unit">steps</span><input id="minGap" type="number" min="1" value="5"></label>
             <label class="field">Max. spacing <span class="unit">steps</span><input id="maxGap" type="number" min="1" value="15"></label>
           </div>
-          <p class="note">Spacing between consecutive events, chosen at random in this range.<span id="gapMs"></span> <span id="archNote"></span></p>
-          <label class="field">Probability that each input spikes in an event
+          <p class="note">Spacing between consecutive input spikes, chosen at random in this range.<span id="gapMs"></span> <span id="archNote"></span></p>
+          <label class="field">Probability that each input spikes at each of these steps
             <div class="slider"><input id="pInput" type="range" min="0.05" max="1" step="0.05" value="0.4"><output id="pInputOut">0.40</output></div>
           </label>
         </div>
@@ -208,7 +216,7 @@
           <div class="raster-head">
             <h3>Network activity</h3>
             <div class="raster-ctrl">
-              <label class="chk" id="showExpectedField" title="Plot of the FSM itself below: input signals and states, changing state at the very step of each input event (ideal FSM, without synaptic delays)"><input type="checkbox" id="showExpected" checked> Show expected</label>
+              <label class="chk" id="showExpectedField" title="Plot of the FSM itself below: input signals and states, changing state at the very step of each input spike (ideal FSM, without synaptic delays)"><input type="checkbox" id="showExpected" checked> Show expected</label>
               <label class="chk"><input type="checkbox" id="showAll"> All neurons</label>
               <label class="zoom">Zoom <input type="range" id="zoom" min="1" max="20" value="1"></label>
               <div class="split" id="simSaveWrap">
@@ -235,7 +243,7 @@
           </div>
         </div>
         <details class="card">
-          <summary>Per-event detail</summary>
+          <summary>Detail per input spike</summary>
           <div id="eventTable"></div>
         </details>
         <p class="muted small" id="savedTo"></p>

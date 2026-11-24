@@ -79,7 +79,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             name = label[4:]
             var, com = unique("NOT_" + name), f"NOT gate of state {name}"
         elif kind == "no_event":
-            var, com = unique("no_event"), "bypass: an input event at t is not followed by one at t+1"
+            var, com = unique("no_spike"), "bypass: input spikes at t not followed by more at t+1"
         elif kind == "term":
             tid, k = term_info[i]
             t = trans[tid]
@@ -110,12 +110,12 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         if qk == "delay":
             return "NOT gates and delay neuron", "OP -> delay"
         if qk == "no_event":
-            return "NOT gates and delay neuron", ("OP of the event at t excites it" if rec == "exc"
-                                                  else "OP of an event at t+1 inhibits it")
+            return "NOT gates and delay neuron", ("OP of the input spikes at t excites it" if rec == "exc"
+                                                  else "OP of input spikes at t+1 inhibits it")
         if qk == "not_state" and pk == "term":
             st = qn[4:]
-            return "NOT gates and delay neuron", (f"bypass, event 2 steps earlier: {pn} leaves {st}" if rec == "exc"
-                                                  else f"bypass, event 2 steps earlier: {pn} enters {st}")
+            return "NOT gates and delay neuron", (f"bypass, input spikes 2 steps earlier: {pn} leaves {st}" if rec == "exc"
+                                                  else f"bypass, input spikes 2 steps earlier: {pn} enters {st}")
         if qk in ("not_input", "not_state"):
             if rec == "exc":
                 return "NOT gates and delay neuron", f"OP excites {qn}"
@@ -130,10 +130,10 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             if pk == "not_input":
                 return "AND gates (transition terms)", f"{pn}: {pn[4:]} must spike"
             if pk == "term":
-                return "AND gates (transition terms)", (f"bypass, previous event: {pn} enters the source state" if rec == "exc"
-                                                        else f"bypass, previous event: {pn} leaves the source state")
+                return "AND gates (transition terms)", (f"bypass, input spikes 1 step earlier: {pn} enters the source state" if rec == "exc"
+                                                        else f"bypass, input spikes 1 step earlier: {pn} leaves the source state")
             if pk == "no_event":
-                return "AND gates (transition terms)", "no event now: cancels the bypass of the previous event"
+                return "AND gates (transition terms)", "no input spike now: cancels the bypass of the previous ones"
             return "AND gates (transition terms)", f"input {pn}: {pn} must not spike"
         if qk == "latch":
             st = qn.split(".")[0]

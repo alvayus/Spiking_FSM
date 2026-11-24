@@ -24,7 +24,7 @@ const NET_STYLE = {
   delay:     { fill: "#fff2cc", stroke: "#d6b656", name: "Delay neuron of the AND gates" },
   not_input: { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate of an input" },
   not_state: { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate of a state" },
-  no_event:  { fill: "#f8cecc", stroke: "#b85450", name: "Bypass: no event at t+1" },
+  no_event:  { fill: "#f8cecc", stroke: "#b85450", name: "Bypass: no input spike at t+1" },
   term:      { fill: "#e1d5e7", stroke: "#9673a6", name: "AND gate (transition term)" },
   latch:     { fill: "#d5e8d4", stroke: "#82b366", name: "Latch neuron" },
   output:    { fill: "#f5f5f5", stroke: "#666666", name: "Output neuron" },
@@ -34,10 +34,10 @@ const NET_DESC = {
   init: "Spike source with a single spike that sets the latches of the states that are active at start.",
   op: "Input-driven OR: spikes one step after any input spikes. It triggers every evaluation of the gates.",
   delay: "Yellow neuron of the AND gates: repeats OP one step later and provides the excitation of every AND gate.",
-  not_input: "Excited by OP and inhibited by the input: spikes when there is an input event and this input did not spike.",
-  not_state: "Excited by OP and inhibited by the latch (N1, N2, N3): spikes when there is an input event and the state is not active. In the parallel implementation, the transitions of the event two steps earlier override the latch (bypass).",
-  no_event: "Parallel implementation: spikes when an input event is not followed by another one on the next step. It cancels the bypass of that event towards the AND gates, so a bypass never fires a transition by itself.",
-  term: "Excited by the delay neuron and inhibited by the NOT gates of its positive literals, by the inputs of its negated literals and by the NOT gate of its source state. It spikes when the source state is active and the term holds; it then sets the destination latch and resets the source latch. In the parallel implementation it also receives the transitions of the previous event (bypass): entering its source state excites it, leaving it inhibits it.",
+  not_input: "Excited by OP and inhibited by the input: spikes when some input spikes but this one does not.",
+  not_state: "Excited by OP and inhibited by the latch (N1, N2, N3): spikes when some input spikes and the state is not active. In the parallel implementation, the transitions fired by input spikes two steps earlier override the latch (bypass).",
+  no_event: "Parallel implementation: spikes when input spikes are not followed by more input spikes on the next step. It then cancels their bypass towards the AND gates, so a bypass never fires a transition by itself.",
+  term: "Excited by the delay neuron and inhibited by the NOT gates of its positive literals, by the inputs of its negated literals and by the NOT gate of its source state. It spikes when the source state is active and the term holds; it then sets the destination latch and resets the source latch. In the parallel implementation it also receives the transitions fired one step earlier (bypass): entering its source state excites it, leaving it inhibits it.",
   set: "Set neuron (N1) of the latch: starts the ring. Setting a state that is already active does no harm (both ring neurons may then spike on every step until the next reset).",
   ring: "Ring neuron (N2 / N3) of the latch: the two ring neurons excite each other, so the state is active while they keep spiking. A transition that leaves the state inhibits them (reset).",
   output: "OR of the transitions that enter states marked as accepting in the JSON specification.",
@@ -231,14 +231,18 @@ function netEdgePath(e, D) {
     const sg = e.type === "arcTop" ? -1 : 1, yy = sg < 0 ? e.band.top + 18 : e.band.bottom - 18;
     return roundedPath([[P.x, P.y + sg * (NR + 0.5)], [P.x, yy], [Q.x, yy], [Q.x, Q.y + sg * (NR + GAP)]], 10);
   }
+  // bypasses leave from the bottom of the AND gate and reach the top of the AND gate or
+  // the bottom of NOT(state), away from the ports used by the other synapses
+  const d45 = NR * Math.SQRT1_2;
   if (e.type === "bypassTerm") {         // between AND gates of the same column: curve on their right
-    const bend = COLX.term + NR + 30 + Math.min(60, Math.abs(P.y - Q.y) * 0.15);
-    if (e.from === e.to) return `M${P.x + NR},${P.y - 5} C${bend},${P.y - 30} ${bend},${P.y + 30} ${P.x + NR + GAP},${P.y + 5}`;
-    return `M${P.x + NR},${P.y} C${bend},${P.y} ${bend},${Q.y} ${Q.x + NR + GAP},${Q.y}`;
+    const r = COLX.term + 55 + Math.min(70, Math.abs(P.y - Q.y) * 0.2);
+    const sx = P.x + d45, sy = P.y + d45, ex = Q.x + d45 + GAP * .7, ey = Q.y - d45 - GAP * .7;
+    if (e.from === e.to) return `M${sx},${sy} C${P.x + 60},${P.y + 50} ${P.x + 60},${P.y - 50} ${ex},${ey}`;
+    return `M${sx},${sy} C${r},${P.y + 30} ${r},${Q.y - 40} ${ex},${ey}`;
   }
-  if (e.type === "bypassBack") {         // AND gate -> NOT(state), one column back: curve below
-    const yb = Math.max(P.y, Q.y) + 40;
-    return `M${P.x - NR},${P.y} C${P.x - 60},${yb} ${Q.x + 60},${yb} ${Q.x + NR + GAP},${Q.y}`;
+  if (e.type === "bypassBack") {         // AND gate -> NOT(state), one column back: curve below both
+    const yb = Math.max(P.y, Q.y) + 46;
+    return `M${P.x - d45},${P.y + d45} C${P.x - 30},${yb} ${Q.x + 10},${yb} ${Q.x + 2},${Q.y + NR + GAP}`;
   }
   return roundedPath(latchRoute(e, P, Q), 5);
 }
@@ -339,7 +343,7 @@ function netLabelLines(n) {
   if (n.kind === "input" && n.label.length > 3) return [n.label];
   if (n.kind === "not_input" || n.kind === "not_state") return [n.label.replace(/^NOT /, "¬")];
   if (n.kind === "delay") return ["delay"];
-  if (n.kind === "no_event") return ["no event", "at t+1"];
+  if (n.kind === "no_event") return ["no spike", "at t+1"];
   if (n.kind === "term") {
     const t = transById(n.tid);
     return [n.label.replace(/ \(\d+\)$/, ""), t ? optionText(t.options[n.k]) : ""];
@@ -376,7 +380,7 @@ function drawNetwork() {
     const d = netEdgePath(e, D);
     const tip = `${netName(P)} → ${netName(Q)} · ${e.rec === "exc" ? "excitatory" : "inhibitory"}${e.w !== 1 ? ` · weight ×${e.w}` : ""}${e.bypass ? " · bypass" : ""} · delay ${e.delay}`;
     eparts.push(`<g class="syn ${e.rec}${e.bypass ? " bypass" : ""}" data-e="${e.i}"><title>${esc(tip)}</title>
-      <path class="hit" d="${d}"/><path class="line" d="${d}" marker-end="url(#${e.rec === "exc" ? "synExc" : "synInh"})"/></g>`);
+      <path class="hit" d="${d}"/><path class="line" d="${d}" marker-end="url(#${e.rec === "exc" ? "synExc" : "synInh"}${e.bypass ? "B" : ""})"/></g>`);
   }
   const nparts = Object.values(D.nodes).filter(visible).map((n) => {
     const st = NET_STYLE[n.kind] || NET_STYLE.output;
@@ -424,7 +428,7 @@ function netHighlight() {
 function netDetails() {
   const el = $("#netDetails");
   if (!netPinned || !netData.nodes[netPinned]) {
-    el.innerHTML = `<h3>Neuron</h3><p class="note">Hover over a neuron to highlight its synapses. Click it to see them listed here, with the time it takes to spike after an input event.</p>`;
+    el.innerHTML = `<h3>Neuron</h3><p class="note">Hover over a neuron to highlight its synapses. Click it to see them listed here, with the time it takes to spike after an input spike.</p>`;
     return;
   }
   const n = netData.nodes[netPinned], st = NET_STYLE[n.kind] || NET_STYLE.output;
@@ -436,12 +440,12 @@ function netDetails() {
   };
   const lat = netLatency(netPinned);
   let latHtml = "";
-  if (n.kind === "input") latHtml = `<p class="lat"><b>t</b><span>An input event happens at time step t.</span></p>`;
+  if (n.kind === "input") latHtml = `<p class="lat"><b>t</b><span>An input spikes at time step t.</span></p>`;
   else if (n.kind === "init") latHtml = `<p class="lat"><b>t = 0</b><span>Single spike at the start of the simulation.</span></p>`;
   else if (lat) {
     const chain = [netData.nodes[lat.path[0].from]].concat(lat.path.map((e) => netData.nodes[e.to])).map(netName).map(esc).join(" → ");
     latHtml = lat.from === "input"
-      ? `<p class="lat"><b>t + ${lat.steps}</b><span>First spikes ${lat.steps} time step${lat.steps === 1 ? "" : "s"} after the input event that drives it, along the path highlighted in blue:<br>${chain}</span></p>`
+      ? `<p class="lat"><b>t + ${lat.steps}</b><span>First spikes ${lat.steps} time step${lat.steps === 1 ? "" : "s"} after the input spike that drives it, along the path highlighted in blue:<br>${chain}</span></p>`
       : `<p class="lat"><b>init + ${lat.steps}</b><span>Driven by the initialisation spike:<br>${chain}</span></p>`;
   }
   const inc = netData.edges.filter((e) => e.to === n.key), out = netData.edges.filter((e) => e.from === n.key);
@@ -494,7 +498,8 @@ async function loadNetwork() {
   netFresh = false;
   const c = netCountsData;
   $("#netCounts").innerHTML = `<dl class="kv counts">
-    <dt>Neurons<span>plus ${c.sources} spike source${c.sources === 1 ? "" : "s"}</span></dt><dd class="big">${c.neurons}</dd>
+    <dt>Neurons</dt><dd class="big">${c.neurons}</dd>
+    <dt>Spike sources<span>inputs and initialisation</span></dt><dd class="big">${c.sources}</dd>
     <dt>Synapses<span>${c.excitatory} excitatory · ${c.inhibitory} inhibitory</span></dt><dd class="big">${c.synapses}</dd></dl>`;
   renderNetKinds(); drawNetwork(); netDetails();
   netFit();                        // the structure changed: show the whole network

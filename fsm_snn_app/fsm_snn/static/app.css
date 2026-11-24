@@ -22,6 +22,7 @@
   --out: #9673a6;
   --exc: #475569;
   --inh: #b85450;
+  --bypass: #7b4fbf;
   --extra: #e02424;
   --extra-bg: #fde8e8;
   --miss: #f08c00;
@@ -370,7 +371,9 @@ pre.code {
 .zoom { display: flex; align-items: center; gap: 6px; }
 .raster-scroll { margin-top: 10px; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
 .raster { display: block; }
-.syn.bypass .line { stroke-dasharray: 5 4; }
+.net .syn.bypass .line { stroke: var(--bypass); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.sub-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 2px 26px; font-size: 12px; color: var(--muted); }
+.sub-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .raster text { font-size: 11px; fill: #334155; }
 .card h3.sub-plot { margin: 26px 0 0; padding-top: 16px; border-top: 1px solid var(--line); }
 .btn.small { padding: 4px 9px; font-size: 12px; }

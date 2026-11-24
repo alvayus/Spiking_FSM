@@ -32,11 +32,11 @@ const roundSteps = (x) => { const r = Math.round(x); return Math.abs(x % 1) === 
 // "5 to 15 steps" is also shown in ms for the current time step
 function updateGapMs() {
   const dt = curDt(), lo = Math.max(1, +$("#minGap").value), hi = Math.max(lo, +$("#maxGap").value);
-  $("#gapMs").textContent = ` With a ${msText(dt)} ms step: ${msText(lo * dt)} to ${msText(hi * dt)} ms between events.`;
+  $("#gapMs").textContent = ` With a ${msText(dt)} ms step: ${msText(lo * dt)} to ${msText(hi * dt)} ms between input spikes.`;
   const g = archGap();
   $("#archNote").innerHTML = g > 1
-    ? `The <b>pipelined</b> network (Network tab) guarantees correct behaviour for events at least <b>${g}</b> steps apart, the time a transition needs to be written to the latches. The parallel one accepts any spacing.`
-    : `The <b>parallel</b> network (Network tab) accepts any spacing, even events on consecutive steps.`;
+    ? `The <b>pipelined</b> network (Network tab) guarantees correct behaviour for input spikes at least <b>${g}</b> steps apart, the time a transition needs to be written to the latches. The parallel one accepts any spacing.`
+    : `The <b>parallel</b> network (Network tab) accepts any spacing, even input spikes on consecutive steps.`;
 }
 const archGap = () => info.architectures[archOf()].min_event_gap;
 
@@ -63,7 +63,7 @@ function checkTyped() {
   }
   const shown = issues.slice(0, 6).map((m) => `<div class="msg warn">${esc(m)}</div>`).join("")
     + (issues.length > 6 ? `<div class="msg warn">…and ${issues.length - 6} more.</div>` : "");
-  box.innerHTML = `<p class="note">With a ${msText(dt)} ms time step, typed spikes must come at ${msText((ready + 1) * dt)} ms or later.${gap > 1 ? ` The pipelined network guarantees correct behaviour for spikes at least ${msText(gap * dt)} ms (${gap} steps) apart.` : ""} Spikes of different inputs in the same step form one event.</p>${shown}`;
+  box.innerHTML = `<p class="note">With a ${msText(dt)} ms time step, typed spikes must come at ${msText((ready + 1) * dt)} ms or later.${gap > 1 ? ` The pipelined network guarantees correct behaviour for spikes at least ${msText(gap * dt)} ms (${gap} steps) apart.` : ""} Spikes of different inputs in the same step are evaluated together.</p>${shown}`;
 }
 
 function collectParams() {
@@ -90,7 +90,7 @@ function setMode(m) {
   $$("#modeSeg button").forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
   $("#randomFields").hidden = m === "manual"; $("#manualFields").hidden = m === "random";
   $("#manualNote").innerHTML = m === "mixed"
-    ? `Spikes inserted on top of the random sequence, in milliseconds, separated by commas. They are always kept: random events closer than the minimum spacing to one of them are left out.`
+    ? `Spikes inserted on top of the random sequence, in milliseconds, separated by commas. They are always kept: random spikes closer than the minimum spacing to one of them are left out.`
     : "Type the spike times of each input in milliseconds, separated by commas.";
   checkTyped();
   $("#pInputOut").textContent = fmt(+$("#pInput").value, 2);
@@ -136,7 +136,7 @@ function renderDiffs(r, diffs) {
   const chip = (n, cls, what) => `<span class="diff-chip ${n ? cls : "none"}">${n} ${what} spike${n === 1 ? "" : "s"}</span>`;
   const sm = r.summary || {};
   $("#simDiffs").innerHTML = `<div class="card"><h3>Differences with the reference</h3>
-    <p class="note">The network is compared with the reference automaton shifted by its processing time: a state becomes active ${sm.state_latency} steps after its input event and Output spikes ${sm.output_latency} steps after it.</p>
+    <p class="note">The network is compared with the reference automaton shifted by its processing time: a state becomes active ${sm.state_latency} steps after the input spike and Output spikes ${sm.output_latency} steps after it.</p>
     <div class="diff-totals">${chip(nMiss, "miss", "missing")}${chip(nExtra, "extra", "extra")}</div>
     <div class="tbl-wrap"><table class="tbl diff-tbl"><thead><tr><th></th><th>Missing spikes</th><th>Extra spikes</th></tr></thead><tbody>
     ${diffs.map((d) => `<tr><td><b>${esc(d.label)}</b></td><td class="miss">${rangesText(d.missing, r.dt)}</td><td class="extra">${rangesText(d.extra, r.dt)}</td></tr>`).join("")}
