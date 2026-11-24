@@ -170,10 +170,10 @@ function renderResults() {
 const RASTER_COLOR = {
   input: "#6c8ebf", init: "#666666", op: "#d79b00", state: "#82b366", latch: "#82b366",
   output: "#9673a6", term: "#9673a6", not_input: "#b85450", not_state: "#b85450", delay: "#d6b656",
-  clock: "#666666", no_trans: "#b85450", leave: "#d79b00", no_stay: "#b85450", hold: "#82b366", enter: "#82b366",
+  relay: "#6c8ebf", no_event: "#b85450", enter_or: "#d79b00", leave_or: "#d79b00",
 };
-const RASTER_ORDER = ["input", "init", "op", "clock", "delay", "not_input", "not_state", "term", "no_trans", "leave",
-  "no_stay", "latch", "hold", "enter", "state", "output"];
+const RASTER_ORDER = ["input", "init", "op", "relay", "delay", "not_input", "not_state", "no_event", "term",
+  "enter_or", "leave_or", "latch", "state", "output"];
 const isSourceKind = (k) => k === "input" || k === "init" || k === "op";
 // Name of a raster row: with "All neurons", the name the neuron has in the Network tab.
 function rowName(row, r) {

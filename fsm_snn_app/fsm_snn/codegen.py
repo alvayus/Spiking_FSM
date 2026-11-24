@@ -63,14 +63,8 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         for j, n in enumerate((n1, n2, n3)):
             where[n] = (var, j)
         latch_of[sid] = var
-    clock = [i for i, n in enumerate(net.neurons) if n["kind"] == "clock"]
-    if clock:                                     # parallel: the clock ring, one population
-        var = unique("clock")
-        for j, n in enumerate(clock):
-            where[n] = (var, j)
-        pops.append((var, len(clock), "clock: a ring of two neurons that fires on every time step"))
+    bypass = net.architecture == "parallel"
     sname = lambda sid: st_by_id[sid]["name"] if sid in st_by_id else sid
-    tname = lambda tid: f"{sname(trans[tid]['from'])} -> {sname(trans[tid]['to'])}"
     term_info = {n: (tid, k) for tid, k, n in net.terms}
     for i, n in enumerate(net.neurons):
         if i in where:
@@ -86,26 +80,23 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         elif kind == "not_state":
             name = label[4:]
             var, com = unique("NOT_" + name), f"NOT gate of state {name}"
-        elif kind == "hold":
-            var, com = unique("hold_" + label.split(" ")[0]), f"state {sname(n['sid'])} stays (state neuron)"
-        elif kind == "enter":
-            var = unique("enter_" + label.replace("→", "_"))
-            com = f"transition {tname(n['tid'])} fires (state neuron of {sname(trans[n['tid']]['to'])})"
-        elif kind == "no_trans":
-            var = unique("NOT_" + label[4:].replace("→", "_").replace(" #", "_"))
-            com = f"transition {tname(n['tid'])} does not fire (clock and none of its terms)"
-        elif kind == "leave":
-            var, com = unique(label.replace(" ", "_")), f"some term leaving {sname(n['sid'])} holds"
-        elif kind == "no_stay":
-            var = unique("NOT_" + label[4:].replace(" #", "_").replace(" ", "_"))
-            com = f"{sname(n['sid'])} must leave (it inhibits its hold neuron)"
+        elif kind == "relay":
+            var, com = unique("copy_" + label.replace(" #", "_")), f"copy of input {label.split(' #')[0]} (1-step bypass vetoes)"
+        elif kind == "no_event":
+            var = unique("no_spikes_" + str(n["g"]) + (("_" + label.split("#")[1]) if "#" in label else ""))
+            com = f"bypass: input spikes {n['g']} step{'s' if n['g'] > 1 else ''} earlier and none now"
+        elif kind == "enter_or":
+            var, com = unique(label.replace(" ", "_")), f"OR: a term entering {sname(n['sid'])} fired"
+        elif kind == "leave_or":
+            var, com = unique(label.replace(" ", "_")), f"OR: a term leaving {sname(n['sid'])} fired"
         elif kind == "term":
             tid, k = term_info[i]
             t = trans[tid]
             a, b = st_by_id[t["from"]]["name"], st_by_id[t["to"]]["name"]
-            var = unique(f"AND_{a}_{b}" + (f"_{k + 1}" if len(t["options"]) > 1 else ""))
-            com = (f"AND gate of {a} -> {b}: {option_to_text(t['options'][k])}" if not clock else
-                   f"condition term of {a} -> {b}: {option_to_text(t['options'][k])} (AND gate, no state)")
+            via = n.get("via")
+            var = unique(f"AND_{a}_{b}" + (f"_{k + 1}" if len(t["options"]) > 1 else "")
+                         + (f"_{via.split(' ')[0]}" if via else ""))
+            com = f"AND gate of {a} -> {b}: {option_to_text(t['options'][k])}" + (f" (via {via})" if via else "")
         else:
             var, com = unique("output"), "output neuron"
         where[i] = (var, 0)
@@ -127,21 +118,13 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         pn, qn = name_of(pre), net.neurons[post]["label"]
         if qk == "op":
             return "OP", f"input {pn} drives OP"
-        if qk == "clock":
-            return "Clock", ("the initialisation spike starts the clock" if src_kind == "init" else "clock ring")
-        if qk == "no_trans":
-            return "Conditions", ("the clock drives it on every step" if rec == "exc"
-                                  else f"{pn}: a term of the transition holds")
-        if qk == "leave":
-            return "Conditions", f"{pn}: a term leaving the state holds"
-        if qk == "no_stay":
-            return "Conditions", (f"{pn}: the state leaves" if rec == "exc" else f"{pn}: a self-loop term holds, the state stays")
-        if qk in ("hold", "enter"):
-            if src_kind == "init":
-                return "State (synchronous)", f"{qn.split(' ')[0]} is active at start"
-            if rec == "inh":
-                return "State (synchronous)", (f"{pn}: the transition does not fire" if qk == "enter" else f"{pn}")
-            return "State (synchronous)", f"{pn}: its state was active one step earlier"
+        if qk == "relay":
+            return "NOT gates and delay neuron", f"input {pn} drives its copy"
+        if qk == "no_event":
+            return "NOT gates and delay neuron", ("OP of earlier input spikes excites it" if rec == "exc"
+                                                  else "OP of input spikes now inhibits it")
+        if qk in ("enter_or", "leave_or"):
+            return "OR gates of the states (bypasses)", f"{pn} fired"
         if qk == "delay":
             return "NOT gates and delay neuron", "OP -> delay"
         if qk in ("not_input", "not_state"):
@@ -156,7 +139,16 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             if pk == "not_state":
                 return "AND gates (transition terms)", f"{pn}: source state {pn[4:]} must be active"
             if pk == "not_input":
-                return "AND gates (transition terms)", f"{pn}: {pn[4:]} must spike"
+                return "AND gates (transition terms)", f"{pn}: {pn[4:].split(' #')[0]} must spike"
+            if pk == "relay":
+                return "AND gates (transition terms)", f"{pn}: {pn.split(' #')[0]} must not spike"
+            if pk == "no_event":
+                return "AND gates (transition terms)", f"{pn}: cancels the bypass when there are no input spikes now"
+            if pk == "term":
+                return "AND gates (transition terms)", (f"bypass, 1 step: {pn} entered the source state" if rec == "exc"
+                                                        else f"bypass: {pn} changed the source state 1 step earlier")
+            if pk in ("enter_or", "leave_or"):
+                return "AND gates (transition terms)", f"bypass: {pn} (input spikes 2 or 3 steps earlier)"
             return "AND gates (transition terms)", f"input {pn}: {pn} must not spike"
         if qk == "latch":
             st = qn.split(".")[0]
@@ -188,17 +180,16 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     w(f"{c['neurons']} neurons and {c['synapses']} synapses ({c['excitatory']} excitatory, "
       f"{c['inhibitory']} inhibitory).")
     w("")
-    if clock:
-        w("Parallel (synchronous) implementation: the conditions of the transitions are")
-        w("computed from the inputs on their own, and the state is recomputed on every time")
-        w("step by one neuron per state (hold) and one per transition between two states")
-        w("(enter); a state is active while any of its neurons spikes. Every synapse has")
-        w("weight 1. Input spike times come from the settings of the Simulate tab.")
-    else:
-        w("Every state is a latch of three neurons: index 0 is the set neuron (N1) and")
-        w("indices 1 and 2 are the ring neurons (N2, N3), which keep spiking while the state")
-        w("is active. Every synapse has weight 1. Input spike times come from the settings")
-        w("of the Simulate tab.")
+    w("Every state is a latch of three neurons: index 0 is the set neuron (N1) and")
+    w("indices 1 and 2 are the ring neurons (N2, N3), which keep spiking while the state")
+    w("is active. Every synapse has weight 1. Input spike times come from the settings")
+    w("of the Simulate tab.")
+    if bypass:
+        w("")
+        w("Parallel implementation: bypasses pass the transitions fired by the input spikes")
+        w("of the 3 previous steps on to the next ones, so input spikes may come on")
+        w("consecutive steps. Each term has up to four AND gates (via 1, 2 or 3 steps, or via")
+        w("the latch), and at most one of them fires.")
     if simulation:
         w("")
         w("The script builds the network, runs it, compares the states (and Output) with")
@@ -252,8 +243,8 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         extra = ", active at start" if st["initial"] else ""
         w(f"{var} = sim.Population(3, cell, label={var!r})   # latch of state {st['name']}: [N1 set, N2 ring, N3 ring]{extra}")
     w("")
-    order = ["OP", "Clock", "NOT gates and delay neuron", "AND gates (transition terms)", "Conditions",
-             "Latches", "State (synchronous)", "Output"]
+    order = ["OP", "NOT gates and delay neuron", "AND gates (transition terms)", "OR gates of the states (bypasses)",
+             "Latches", "Output"]
     for sec in order:
         if sec not in sections:
             continue
@@ -267,11 +258,11 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
                 continue
             w(f"connect({pv}, {qv}, {receptor!r}, [({pi}, {qi}, {delay})])   # {com}")
         for (var, receptor), conns in latch_internal.items():
-            w(f"connect({var}, {var}, {receptor!r}, {conns!r})   # N1 -> N2 (set), N2 <-> N3 (ring)")
+            what = "N1 -> N2 (set), N2 <-> N3 (ring)" if receptor == "excitatory" else "the ring inhibits N1 (no second set)"
+            w(f"connect({var}, {var}, {receptor!r}, {conns!r})   # {what}")
         w("")
     w("# ------------------------------------------------------------ run")
-    w("# neurons whose spikes are each state: " + ("the ring of its latch (N2, N3)" if not clock
-                                                  else "its hold neuron and the enter neurons of the transitions into it"))
+    w("# neurons whose spikes are each state: the ring of its latch (N2, N3)")
     w("STATE_NEURONS = {")
     for st in s["states"]:
         w(f"    {st['name']!r}: [" + ", ".join(f"({where[n][0]}, {where[n][1]})" for n in net.states[st["id"]]) + "],")

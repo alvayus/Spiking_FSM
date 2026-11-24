@@ -9,18 +9,17 @@ from .spec import normalise
 
 
 def _state_spikes(net: Netlist, spikes: dict, sid: str) -> list[int]:
-    """Steps in which a state is active: spikes of its latch ring (pipelined) or of
-    its hold and enter neurons (parallel)."""
+    """Steps in which a state is active: spikes of its latch ring."""
     return sorted({t for n in net.states[sid] for t in spikes.get(n, [])})
 
 
 def _expected_state_steps(s, events, ref, end_step, arch="pipelined"):
-    """Expected activity of each state (one spike per step while active)."""
-    if arch == "parallel":
-        return _expected_parallel(s, events, ref, end_step)
-    lat = TIMING["pipelined"]["state_latency"]
+    """Expected ring activity of each state (one spike per step while active): a ring
+    stops 3 steps after the input spikes that leave its state and starts state_latency
+    steps after those that enter it."""
+    lat = TIMING[arch]["state_latency"]
     st = {x["id"]: x for x in s["states"]}
-    active_from = {sid: TIMING["pipelined"]["ready_step"] for sid in st if st[sid]["initial"]}
+    active_from = {sid: TIMING[arch]["ready_step"] for sid in st if st[sid]["initial"]}
     steps = {sid: [] for sid in st}
 
     def close(sid, last):
@@ -49,24 +48,6 @@ def _expected_state_steps(s, events, ref, end_step, arch="pipelined"):
             active_from.setdefault(sid, e + lat)
     for sid in list(active_from):
         close(sid, end_step)
-    return steps
-
-
-def _expected_parallel(s, events, ref, end_step):
-    """Parallel (synchronous) network: from its first step on, a state spikes on every
-    step while it is active, and the state after an event shows state_latency steps later."""
-    tm = TIMING["parallel"]
-    lat, start = tm["state_latency"], tm["ready_step"]
-    cur = {x["id"] for x in s["states"] if x["initial"]}
-    changes = [(e + lat, set(a)) for (e, _), a in zip(events, ref["active_after"])]
-    steps = {x["id"]: [] for x in s["states"]}
-    k = 0
-    for t in range(start, end_step):
-        while k < len(changes) and changes[k][0] <= t:
-            cur = changes[k][1]
-            k += 1
-        for sid in cur:
-            steps[sid].append(t)
     return steps
 
 
@@ -111,9 +92,9 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
         warnings.append(f"Unusual simulator time offset ({offset} steps).")
 
     # ---- state agreement at every event ----------------------------------------
-    # Pipelined: the transitions the network fires for each event (its term neurons, at
-    # e + T_TERM) give the states it is in. Parallel: its state neurons show the state
-    # before each event one step before the state after it.
+    # The transitions the network fires for each event (its term neurons, at e + T_TERM)
+    # give the states it is in, whatever the spacing: with the bypasses, a state that lasts
+    # a single event may never reach its latch ring.
     state_spk = {sid: set(_state_spikes(net, spikes, sid)) for sid in names}
     tmap = {t["id"]: t for t in s["transitions"]}
     term_spk = {}
@@ -124,8 +105,6 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     per_event = []
     agree = 0
     for (e, ev), exp in zip(events, ref["active_before"]):
-        if arch == "parallel":
-            active = {sid for sid in names if e + tm["state_latency"] - 1 + offset in state_spk[sid]}
         got = sorted(active)
         ok = got == exp
         agree += ok

@@ -125,6 +125,9 @@
           <!-- fixed size heads whose tip / far edge is exactly the end of the synapse -->
           <marker id="synExc" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path d="M0,1 L10,5 L0,9 z" fill="#475569"/></marker>
           <marker id="synInh" viewBox="0 0 10 10" refX="9.2" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><circle cx="5" cy="5" r="4" fill="#fff" stroke="#b85450" stroke-width="1.6"/></marker>
+          <!-- bypasses (parallel implementation): excitatory blue, inhibitory orange -->
+          <marker id="synExcB" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,1 L10,5 L0,9 z" fill="#2f6fd0"/></marker>
+          <marker id="synInhB" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto"><circle cx="5" cy="5" r="3.6" fill="#fff" stroke="#e07b1a" stroke-width="2"/></marker>
         </defs>
         <g id="netLayer"></g>
       </svg>
@@ -155,6 +158,13 @@
             <svg class="syn-icon" width="30" height="12"><line x1="1" y1="6" x2="21" y2="6" stroke="#475569" stroke-width="1.5"/><path d="M20,2 L29,6 L20,10 z" fill="#475569"/></svg>Excitatory</label>
           <label class="chk"><input type="checkbox" id="netInh" checked>
             <svg class="syn-icon" width="30" height="12"><line x1="1" y1="6" x2="21" y2="6" stroke="#b85450" stroke-width="1.5"/><circle cx="25" cy="6" r="4" fill="#fff" stroke="#b85450" stroke-width="1.6"/></svg>Inhibitory</label>
+          <div id="netBypassField" hidden>
+            <label class="chk"><input type="checkbox" id="netBypass" checked>Bypasses</label>
+            <div class="sub-legend">
+              <span><svg class="syn-icon" width="30" height="12"><line x1="1" y1="6" x2="23" y2="6" stroke="#2f6fd0" stroke-width="1.5" stroke-dasharray="4 2.5"/><path d="M22,2.5 L29,6 L22,9.5 z" fill="#2f6fd0"/></svg>excitatory</span>
+              <span><svg class="syn-icon" width="30" height="12"><line x1="1" y1="6" x2="22" y2="6" stroke="#e07b1a" stroke-width="1.5" stroke-dasharray="4 2.5"/><circle cx="25.5" cy="6" r="3" fill="#fff" stroke="#e07b1a" stroke-width="1.8"/></svg>inhibitory</span>
+            </div>
+          </div>
         </div>
       </div>
     </aside>

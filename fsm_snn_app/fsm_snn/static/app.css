@@ -22,6 +22,8 @@
   --out: #9673a6;
   --exc: #475569;
   --inh: #b85450;
+  --bypass-exc: #2f6fd0;
+  --bypass-inh: #e07b1a;
   --extra: #e02424;
   --extra-bg: #fde8e8;
   --miss: #f08c00;
@@ -313,13 +315,19 @@ details.card[open] > summary { margin-bottom: 10px; }
 .net .syn .hit { fill: none; stroke: transparent; stroke-width: 9; }
 .net .syn, .net .nn { transition: opacity .12s; }
 #netLayer.focus .syn:not(.hi) { opacity: .07; }
-.net .bus-dot { fill: var(--exc); }
-#netLayer.focus .bus-dot { opacity: .07; }
+.net .syn.bypass .line { stroke-width: 1.4; stroke-dasharray: 5 3; }
+.net .syn.bypass.exc .line { stroke: var(--bypass-exc); }
+.net .syn.bypass.inh .line { stroke: var(--bypass-inh); }
+.net .byp-dot.exc { fill: var(--bypass-exc); }
+.net .byp-dot.inh { fill: var(--bypass-inh); }
+#netLayer.focus .byp-dot { opacity: .07; }
 #netLayer.focus .nn:not(.hi) { opacity: .25; }
 #netLayer.focus .syn.hi .line { stroke-width: 2.2; }
 #netLayer .syn.sel .line { stroke-width: 3; }
 .net .syn { cursor: pointer; }
 .syn-kv { margin-top: 8px; }
+.syn-tag.bypass.exc { background: #dbe7fa; color: #1f4f9c; }
+.syn-tag.bypass.inh { background: #fbe5cf; color: #9a520f; }
 #netLayer .syn.path .line { stroke: var(--accent); stroke-width: 2.4; }
 .syn-icon { flex: none; }
 .net-title { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }

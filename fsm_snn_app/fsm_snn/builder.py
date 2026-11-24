@@ -34,31 +34,38 @@ Two implementations (``spec["architecture"]``):
   e + 5                 destination active (ring)
   ====================  =====================================================
 
-* ``parallel``: a synchronous machine.  The conditions of the transitions are
-  computed from the inputs on their own (they do not depend on the state), and
-  the state is recomputed on every time step by one neuron per state ("hold":
-  the state stays) and one per transition ("enter": the transition fires), which
-  excite each other one step later.  A clock (a two-neuron ring, like a latch)
-  drives the gates that say "this transition does not fire" on every step, also
-  on steps without input spikes.  Every step processes the input spikes of one
-  step, so input spikes may come on consecutive steps.
+* ``parallel``: the same paradigm with bypasses, so that input spikes may come on
+  consecutive steps.  It stays asynchronous: there is no clock, neurons only
+  spike in response to input spikes, and the state is kept by the latches.
 
   ====================  =====================================================
   step e                input spikes
-  e + 1                 OP
-  e + 2                 delay neuron, NOT(inputs)
-  e + 3                 condition terms (one AND gate per term, no state)
-  e + 4                 "leaving" OR of each state; "no transition" NOT gates
-                        (driven by the clock)
-  e + 5                 "must leave" NOT gates of each state
-  e + 6                 hold and enter neurons: the state after the event
-  e + 7                 output
+  e + 1                 OP; copies of the inputs (for the 1-step bypass)
+  e + 2                 delay neuron, NOT(inputs), NOT(states) - latch spikes
+                        of e + 1 -, "no input spikes now" gates
+  e + 3                 transition (term) neurons
+  e + 4                 output; OR gates "the state was entered" / "was left";
+                        first reset of the source (N2, N3)
+  e + 5                 set of the destination (N1, from "entered", guarded by
+                        its ring); second reset (from "left")
+  e + 6                 destination active (ring)
   ====================  =====================================================
 
-  The hold neuron of a state and the enter neurons of the transitions into it
-  are the state: it is active while any of them fires.  A neuron excited by k
-  of them is inhibited by k copies of its "does not fire" gate, so that it is
-  never excited more than inhibited.
+  The latches show the state after input spikes at e from e + 5 on, so a term of
+  input spikes at e' reads from them the state after the spikes up to e' - 4.
+  The spikes at e' - 1, e' - 2 and e' - 3 reach it through bypasses.  Each term
+  has up to four neurons, one per case, and at most one of them fires:
+
+  * via 1 step: the source state was entered by the spikes at e' - 1 (the term
+    neurons of those spikes excite it directly);
+  * via 2 steps: entered at e' - 2 ("entered" gate) and no change at e' - 1;
+  * via 3 steps: entered at e' - 3 and no change at e' - 2 and e' - 1;
+  * via latch: no change at e' - 3, e' - 2, e' - 1 and the latch says active.
+
+  "No input spikes now" gates cancel the bypasses when there are no input spikes
+  at e'.  The 1-step bypass cannot be gathered by an OR gate (there is no time),
+  so a term neuron that may receive k of its spikes is inhibited by k copies of
+  each gate that can veto it.
 
 All synaptic delays are chosen automatically so that every signal arrives at
 the step required above.
@@ -72,9 +79,8 @@ from .spec import ON, OFF, normalise
 
 # pipelined
 T_OP, T_GATE, T_TERM, T_OUT, T_SET, T_RESET = 1, 2, 3, 4, 4, 4
-# parallel (synchronous)
-P_OP, P_GATE, P_TERM, P_COND, P_LEAVE, P_STATE, P_OUT = 1, 2, 3, 4, 5, 6, 7
-P_START = 4             # first step of the hold neurons of the initial states
+# parallel (bypasses): OR gates at e+4, set at e+5, ring from e+6
+P_OR, P_SET = 4, 5
 INIT_STEP = 0           # step of the initialisation spike
 FIRST_EVENT_STEP = 10   # earliest input event of the random trains (as in the manuscript, 10 ms)
 
@@ -82,15 +88,15 @@ ARCHITECTURES = {
     "pipelined": dict(label="Pipelined", min_event_gap=3,
                       desc="Each transition reads the state from the latches. "
                            "Input spikes at least 3 steps apart."),
-    "parallel": dict(label="Parallel (synchronous)", min_event_gap=1,
-                     desc="The state is recomputed on every time step from conditions computed "
-                          "apart. Input spikes at any spacing."),
+    "parallel": dict(label="Parallel (bypasses)", min_event_gap=1,
+                     desc="Bypasses pass the transitions of the latest input spikes on to the next "
+                          "ones, without waiting for the latches. Input spikes at any spacing."),
 }
 DEFAULT_ARCHITECTURE = "parallel"
 # timing of each implementation (steps after an input event)
 TIMING = {
     "pipelined": dict(state_latency=T_SET + 1, output_latency=T_OUT, ready_step=INIT_STEP + 2),
-    "parallel": dict(state_latency=P_STATE, output_latency=P_OUT, ready_step=P_START),
+    "parallel": dict(state_latency=P_SET + 1, output_latency=T_OUT, ready_step=INIT_STEP + 2),
 }
 
 
@@ -118,7 +124,6 @@ class Netlist:
     latches: dict = field(default_factory=dict)   # pipelined: state id -> (n1, n2, n3)
     states: dict = field(default_factory=dict)    # state id -> neurons whose spikes are the state
     terms: list = field(default_factory=list)     # (transition id, option idx, neuron)
-    enters: list = field(default_factory=list)    # parallel: (transition id, neuron)
     output: int | None = None
     op: int | None = None
     input_sources: dict = field(default_factory=dict)  # input name -> source index
@@ -159,7 +164,7 @@ class Netlist:
                     conns=[[list(c[0]), c[1], c[2], c[3], c[4]] for c in self.conns],
                     latches={k: list(v) for k, v in self.latches.items()},
                     states={k: list(v) for k, v in self.states.items()},
-                    terms=[list(t) for t in self.terms], enters=[list(t) for t in self.enters],
+                    terms=[list(t) for t in self.terms],
                     output=self.output, op=self.op, input_sources=self.input_sources,
                     init_source=self.init_source, architecture=self.architecture,
                     init_step=INIT_STEP)
@@ -257,115 +262,160 @@ def _build_pipelined(s, net):
 
 
 # ------------------------------------------------------------------------- parallel
+VIA = ("latch", "1 step", "2 steps", "3 steps")
+
+
 def _build_parallel(s, net):
     states = s["states"]
     st_by_id = {st["id"]: st for st in states}
     trans = [t for t in s["transitions"] if t["from"] in st_by_id and t["to"] in st_by_id]
-    name = lambda sid: st_by_id[sid]["name"]
-
-    # ---- clock: a ring that fires on every step from step 1
-    c1 = net.add_neuron("Clock.a", "clock")
-    c2 = net.add_neuron("Clock.b", "clock")
-    net.connect(("src", net.init_source), c1, "exc", 1)
-    net.connect(("n", c1), c2, "exc", 1)
-    net.connect(("n", c2), c1, "exc", 1)
-
-    # ---- condition terms: event and term holds (no state), at e+3
-    opts = {}                                   # transition id -> [term neurons]
-    if trans:
-        delay_sig, not_inp, inp = _input_gates(s, net, trans, P_GATE)
-        for t in trans:
-            opts[t["id"]] = []
-            for k, opt in enumerate(t["options"]):
-                n = net.add_neuron(_term_name(st_by_id, t, k), "term")
-                net.connect_at(delay_sig, n, "exc", P_TERM)
-                for i, v in opt.items():
-                    if v == ON:
-                        net.connect_at(not_inp[i], n, "inh", P_TERM)
-                    elif v == OFF:
-                        net.connect_at(inp[i], n, "inh", P_TERM)
-                net.terms.append((t["id"], k, n))
-                opts[t["id"]].append(n)
-
-    # ---- state neurons: hold of each state, enter of each transition between two states
-    hold = {st["id"]: net.add_neuron(f"{st['name']} (hold)", "hold", sid=st["id"]) for st in states}
-    enter = {}
-    for t in trans:
-        if t["to"] != t["from"]:
-            enter[t["id"]] = net.add_neuron(f"{name(t['from'])}→{name(t['to'])}", "enter", tid=t["id"])
-            net.enters.append((t["id"], enter[t["id"]]))
-    into = {sid: [hold[sid]] + [enter[t["id"]] for t in trans if t["id"] in enter and t["to"] == sid]
-            for sid in st_by_id}
-    for sid, ns in into.items():
-        net.states[sid] = tuple(ns)
+    N = lambda i: ("n", i)
+    src = lambda name: ("src", net.input_sources[name])
+    op = net.op
+    # latches: N1 -> ring, N1 guarded by the ring (a state that is already active is not set again)
     for st in states:
+        n1 = net.add_neuron(f"{st['name']}.set", "latch")
+        a = net.add_neuron(f"{st['name']}.a", "latch")
+        b = net.add_neuron(f"{st['name']}.b", "latch")
+        net.latches[st["id"]] = (n1, a, b)
+        net.states[st["id"]] = (a, b)
+        net.connect(N(n1), a, "exc", 1)
+        net.connect(N(a), b, "exc", 1)
+        net.connect(N(b), a, "exc", 1)
+        net.connect(N(a), n1, "inh", 1)
+        net.connect(N(b), n1, "inh", 1)
         if st["initial"]:
-            net.connect(("src", net.init_source), hold[st["id"]], "exc", P_START - INIT_STEP)
+            net.connect(("src", net.init_source), n1, "exc", 1)
+    if not trans:
+        return
+    name = lambda sid: st_by_id[sid]["name"]
+    entering = {sid: [(t, k) for t in trans for k in range(len(t["options"])) if t["to"] == sid] for sid in st_by_id}
+    leaving = {sid: [(t, k) for t in trans for k in range(len(t["options"])) if t["from"] == sid and t["to"] != sid]
+               for sid in st_by_id}
+    K = max([len(entering[t["from"]]) for t in trans] + [1])   # copies for the 1-step bypass
 
-    # every neuron of a state excites, one step later, the hold of the state and the
-    # enter neurons of the transitions that leave it
-    for sid, ns in into.items():
-        targets = [hold[sid]] + [enter[t["id"]] for t in trans if t["id"] in enter and t["from"] == sid]
-        for x in ns:
-            for y in targets:
-                net.connect(("n", x), y, "exc", 1)
-
-    # ---- "transition does not fire": clock and no term of the transition (at e+4),
-    #      one copy per neuron of the source state (it inhibits the enter neuron)
+    delay = net.add_neuron("Delay", "delay")
+    net.connect(N(op), delay, "exc", T_GATE - T_OP)
+    used_on = sorted({i for t in trans for o in t["options"] for i, v in o.items() if v == ON}, key=s["inputs"].index)
+    used_off = sorted({i for t in trans for o in t["options"] for i, v in o.items() if v == OFF}, key=s["inputs"].index)
+    not_inp, relay = {}, {}
+    for i in used_on:                                           # NOT gates of the inputs (e+2), K copies
+        not_inp[i] = []
+        for c in range(K):
+            n = net.add_neuron(f"NOT {i}" + (f" #{c + 1}" if c else ""), "not_input")
+            net.connect(N(op), n, "exc", T_GATE - T_OP)
+            net.connect(src(i), n, "inh", T_GATE)
+            not_inp[i].append(n)
+    for i in used_off:                                          # copies of the inputs (e+1), K of them
+        relay[i] = []
+        for c in range(K):
+            n = net.add_neuron(f"{i} #{c + 1}", "relay")
+            net.connect(src(i), n, "exc", 1)
+            relay[i].append(n)
+    # "no input spikes now" (e'+2): there were input spikes at e'-g and there are none at e'
+    nospike = {}
+    for g, copies in ((1, K), (2, 1), (3, 1)):
+        nospike[g] = []
+        for c in range(copies):
+            n = net.add_neuron(f"No spikes, {g} step{'s' if g > 1 else ''} after" + (f" #{c + 1}" if c else ""),
+                               "no_event", g=g)
+            net.connect(N(op), n, "exc", 1 + g)
+            net.connect(N(op), n, "inh", 1)
+            nospike[g].append(n)
+    not_st = {}
+    for sid in dict.fromkeys(t["from"] for t in trans):         # NOT of the state from its latch (e+2)
+        n = net.add_neuron(f"NOT {name(sid)}", "not_state")
+        net.connect(N(op), n, "exc", T_GATE - T_OP)
+        for x in net.latches[sid]:
+            net.connect(N(x), n, "inh", 1)
+        not_st[sid] = n
+    # term neurons: one per case that can happen (no bypass into a state nobody enters)
+    terms = {}
     for t in trans:
-        if t["id"] not in enter:
-            continue
-        k = len(into[t["from"]])
-        for c in range(k):
-            n = net.add_neuron(f"NOT {name(t['from'])}→{name(t['to'])}" + (f" #{c + 1}" if k > 1 else ""),
-                               "no_trans", tid=t["id"])
-            net.connect(("n", c1), n, "exc", 1)
-            net.connect(("n", c2), n, "exc", 1)
-            for x in opts[t["id"]]:
-                net.connect(("n", x), n, "inh", P_COND - P_TERM)
-            net.connect(("n", n), enter[t["id"]], "inh", P_STATE - P_COND)
+        for k in range(len(t["options"])):
+            vias = VIA if entering[t["from"]] else VIA[:1]
+            base = f"{name(t['from'])}→{name(t['to'])}" + (f" ({k + 1})" if len(t["options"]) > 1 else "")
+            terms[(t["id"], k)] = {v: net.add_neuron(base, "term", via=v, tid=t["id"]) for v in vias}
+            for n in terms[(t["id"], k)].values():
+                net.terms.append((t["id"], k, n))
+    raw = lambda opts: [n for t, k in opts for n in terms[(t["id"], k)].values()]
+    E, Lv = {}, {}
+    for sid in st_by_id:                                        # OR gates (e+4)
+        if entering[sid]:
+            E[sid] = net.add_neuron(f"{name(sid)} entered", "enter_or", sid=sid)
+            for n in raw(entering[sid]):
+                net.connect(N(n), E[sid], "exc", P_OR - T_TERM)
+        if leaving[sid]:
+            Lv[sid] = net.add_neuron(f"{name(sid)} left", "leave_or", sid=sid)
+            for n in raw(leaving[sid]):
+                net.connect(N(n), Lv[sid], "exc", P_OR - T_TERM)
+    for t in trans:
+        sid = t["from"]
+        change1 = raw(entering[sid]) + raw(leaving[sid])        # any change at e'-1 (they fire at e'+2)
+        for k, opt in enumerate(t["options"]):
+            T = terms[(t["id"], k)]
 
-    # ---- "must leave": some term leaving the state and no self-loop term (at e+5),
-    #      one copy per neuron of the state (it inhibits the hold neuron)
-    for st in states:
-        sid = st["id"]
-        leave = [x for t in trans if t["from"] == sid and t["to"] != sid for x in opts[t["id"]]]
-        if not leave:
-            continue
-        self_terms = [x for t in trans if t["from"] == sid and t["to"] == sid for x in opts[t["id"]]]
-        l_or = net.add_neuron(f"{st['name']} leaves", "leave", sid=sid)
-        for x in leave:
-            net.connect(("n", x), l_or, "exc", P_COND - P_TERM)
-        k = len(into[sid])
-        for c in range(k):
-            n = net.add_neuron(f"NOT {st['name']} stays" + (f" #{c + 1}" if k > 1 else ""), "no_stay", sid=sid)
-            net.connect(("n", l_or), n, "exc", P_LEAVE - P_COND)
-            for x in self_terms:
-                net.connect(("n", x), n, "inh", P_LEAVE - P_TERM)
-            net.connect(("n", n), hold[sid], "inh", P_STATE - P_LEAVE)
-
-    # ---- output: a transition into an accepting state fires (at e+7)
-    acc = [t for t in trans if st_by_id[t["to"]]["accepting"]]
+            def veto(n, copies=1):
+                for i, v in opt.items():
+                    for c in range(copies):
+                        if v == ON:
+                            net.connect(N(not_inp[i][c]), n, "inh", T_TERM - T_GATE)
+                        elif v == OFF:
+                            net.connect(N(relay[i][c]), n, "inh", T_TERM - 1)
+            # via latch: no change at e'-1, e'-2, e'-3 and the latch says the state is active
+            n = T["latch"]
+            net.connect(N(delay), n, "exc", T_TERM - T_GATE)
+            net.connect(N(not_st[sid]), n, "inh", T_TERM - T_GATE)
+            for x in change1:
+                net.connect(N(x), n, "inh", 1)
+            for X in (E, Lv):
+                if sid in X:
+                    net.connect(N(X[sid]), n, "inh", 1)         # spikes at e'-2: OR at e'+2
+                    net.connect(N(X[sid]), n, "inh", 2)         # spikes at e'-3: OR at e'+1
+            veto(n)
+            if not entering[sid]:
+                continue
+            # via 1 step: entered by the spikes at e'-1 (their terms fire at e'+2)
+            n, ke = T["1 step"], len(entering[sid])
+            for x in raw(entering[sid]):
+                net.connect(N(x), n, "exc", 1)
+            for c in range(ke):
+                net.connect(N(nospike[1][c]), n, "inh", 1)
+            veto(n, ke)
+            # via 2 steps: entered at e'-2, no change at e'-1
+            n = T["2 steps"]
+            net.connect(N(E[sid]), n, "exc", 1)
+            net.connect(N(nospike[2][0]), n, "inh", 1)
+            for x in change1:
+                net.connect(N(x), n, "inh", 1)
+            veto(n)
+            # via 3 steps: entered at e'-3, no change at e'-2 and e'-1
+            n = T["3 steps"]
+            net.connect(N(E[sid]), n, "exc", 2)
+            net.connect(N(nospike[3][0]), n, "inh", 1)
+            for x in change1:
+                net.connect(N(x), n, "inh", 1)
+            net.connect(N(E[sid]), n, "inh", 1)
+            if sid in Lv:
+                net.connect(N(Lv[sid]), n, "inh", 1)
+            veto(n)
+    # set (from "entered", e+5) and reset (terms at e+4, "left" at e+5)
+    for sid in st_by_id:
+        n1, a, b = net.latches[sid]
+        if sid in E:
+            net.connect(N(E[sid]), n1, "exc", P_SET - P_OR)
+        for x in raw(leaving[sid]):
+            net.connect(N(x), a, "inh", T_RESET - T_TERM)
+            net.connect(N(x), b, "inh", T_RESET - T_TERM)
+        if sid in Lv:
+            net.connect(N(Lv[sid]), a, "inh", 1)
+            net.connect(N(Lv[sid]), b, "inh", 1)
+    acc = [n for t in trans if st_by_id[t["to"]]["accepting"] for k in range(len(t["options"]))
+           for n in terms[(t["id"], k)].values()]
     if acc:
         net.output = net.add_neuron("Output", "output")
-        for t in acc:
-            if t["id"] in enter:
-                net.connect(("n", enter[t["id"]]), net.output, "exc", P_OUT - P_STATE)
-            else:                               # self-loop of an accepting state: its own detector
-                d = net.add_neuron(f"{name(t['from'])}→{name(t['to'])}", "enter", tid=t["id"])
-                net.enters.append((t["id"], d))
-                for x in into[t["from"]]:
-                    net.connect(("n", x), d, "exc", 1)
-                k = len(into[t["from"]])
-                for c in range(k):
-                    n = net.add_neuron(f"NOT {name(t['from'])}→{name(t['to'])}" + (f" #{c + 1}" if k > 1 else ""),
-                                       "no_trans", tid=t["id"])
-                    net.connect(("n", c1), n, "exc", 1)
-                    net.connect(("n", c2), n, "exc", 1)
-                    for x in opts[t["id"]]:
-                        net.connect(("n", x), n, "inh", P_COND - P_TERM)
-                    net.connect(("n", n), d, "inh", P_STATE - P_COND)
-                net.connect(("n", d), net.output, "exc", P_OUT - P_STATE)
+        for n in acc:
+            net.connect(N(n), net.output, "exc", T_OUT - T_TERM)
 
 
 def summary(spec: dict) -> dict:
