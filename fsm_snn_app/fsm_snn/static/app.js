@@ -9,7 +9,7 @@ function showTab(name) {
   $$(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   $$(".tabpane").forEach((p) => p.classList.toggle("active", p.id === "tab-" + name));
   if (name === "network") loadNetwork();
-  if (name === "simulate") renderManualFields();
+  if (name === "simulate") { renderManualFields(); updateGapMs(); }
   if (name === "simulate" && lastResult) drawRaster();
 }
 
@@ -19,7 +19,6 @@ async function init() {
   spec = load("fsm_snn_spec");
   if (!spec || !Array.isArray(spec.states) || !Array.isArray(spec.inputs)) spec = info.default_spec;
   spec = sanitize(spec);
-  $("#gapNote").textContent = info.timing.min_event_gap;
   initCanvas(); render(); renderInspector(); runCheck(); fitIfOutside();
   restoreFile();
   initNetwork();
@@ -58,10 +57,16 @@ async function init() {
   $$("#modeSeg button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
   $("#pInput").addEventListener("input", () => ($("#pInputOut").textContent = fmt(+$("#pInput").value, 2)));
   $("#btnSimulate").addEventListener("click", simulate);
-  $("#btnScript").addEventListener("click", downloadScript);
+  $("#btnScript").addEventListener("click", () => showCode("script"));
   $("#showAll").addEventListener("change", drawRaster);
   $("#showExpected").addEventListener("change", drawRaster);
   $("#zoom").addEventListener("input", drawRaster);
+  $("#btnSimSave").addEventListener("click", () => ($("#simSaveMenu").hidden = !$("#simSaveMenu").hidden));
+  $("#simSaveMenu").addEventListener("click", (e) => { const b = e.target.closest("[data-img]"); if (b) saveSimImage(b.dataset.img); });
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#simSaveWrap")) $("#simSaveMenu").hidden = true; });
+  // the two plots share the time axis: scroll them together
+  const sc = [$("#rasterScroll"), $("#rasterExpScroll")];
+  sc.forEach((a, i) => a.addEventListener("scroll", () => { const b = sc[1 - i]; if (b.scrollLeft !== a.scrollLeft) b.scrollLeft = a.scrollLeft; }));
   $("#manualList").addEventListener("input", checkTyped);
   $("#dt").addEventListener("input", () => { checkTyped(); updateGapMs(); });
   ["#minGap", "#maxGap"].forEach((id) => $(id).addEventListener("input", updateGapMs));

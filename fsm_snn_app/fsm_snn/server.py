@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import __version__, files
 from .backends import available_backends
-from .builder import INIT_STEP, MIN_EVENT_GAP, build
+from .builder import ARCHITECTURES, DEFAULT_ARCHITECTURE, INIT_STEP, build
 from .codegen import generate_code
 from .pipeline import export_script, run
 from .spec import normalise, notes, template_simple, validate
@@ -21,7 +21,8 @@ STATIC = os.path.join(os.path.dirname(__file__), "static")
 def api_info(_):
     """Simulators available, timing limits for the inputs and the machine shown on first start."""
     return dict(backends=available_backends(), default_spec=template_simple(),
-                timing=dict(min_event_gap=MIN_EVENT_GAP, ready_step=INIT_STEP + 2))
+                timing=dict(ready_step=INIT_STEP + 2),
+                architectures=ARCHITECTURES, default_architecture=DEFAULT_ARCHITECTURE)
 
 
 def api_check(body):

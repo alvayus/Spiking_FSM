@@ -9,7 +9,11 @@ intervals.  Spikes of different inputs that share a time step form one input
   input per event).
 * ``manual``: spike times typed by the user for each input (in steps or ms).
 * ``mixed``: a random sequence with the typed spikes inserted on top of it.
-  Random events closer than MIN_EVENT_GAP steps to a typed one are dropped.
+  Random events closer than min_gap steps to a typed one are dropped.
+
+The spacing is the user's choice: the pipelined network only guarantees events
+from a minimum spacing on (the analysis reports closer ones), the parallel one
+accepts any spacing.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ from __future__ import annotations
 import random
 import re
 
-from .builder import FIRST_EVENT_STEP, MIN_EVENT_GAP
+from .builder import FIRST_EVENT_STEP
 from .spec import normalise
 
 
@@ -45,14 +49,14 @@ def _random_event(inputs, rng, p):
 
 
 def generate(spec: dict, mode: str = "random", n_events: int = 60,
-             min_gap: int = MIN_EVENT_GAP, max_gap: int = 15, p_input: float = 0.4,
+             min_gap: int = 5, max_gap: int = 15, p_input: float = 0.4,
              seed: int = 1, manual: dict | None = None,
              manual_unit_ms: bool = True, dt: float = 1.0) -> dict:
     """Return dict(trains={input: [steps]}, events=[(step, set)])."""
     s = normalise(spec)
     inputs = s["inputs"]
     rng = random.Random(seed)
-    min_gap = max(int(min_gap), MIN_EVENT_GAP)
+    min_gap = max(int(min_gap), 1)
     max_gap = max(int(max_gap), min_gap)
 
     if mode == "manual":
@@ -67,11 +71,11 @@ def generate(spec: dict, mode: str = "random", n_events: int = 60,
         return dict(trains=trains_from_events(inputs, events), events=events)
 
     # mixed: the typed spikes are kept as they are; random events that fall less
-    # than MIN_EVENT_GAP steps from one of them are dropped so they do not collide
+    # than min_gap steps from one of them are dropped so they do not collide
     fixed = events_from_trains(_manual_trains(inputs, manual, dt, manual_unit_ms))
     fixed_steps = [t for t, _ in fixed]
     kept = [(t, ev) for t, ev in events
-            if all(abs(t - m) >= MIN_EVENT_GAP for m in fixed_steps)]
+            if all(abs(t - m) >= min_gap for m in fixed_steps)]
     events = sorted(kept + fixed, key=lambda e: e[0])
     return dict(trains=trains_from_events(inputs, events), events=events,
                 manual_steps=fixed_steps, dropped=int(n_events) - len(kept))
@@ -88,10 +92,10 @@ def _manual_trains(inputs, manual, dt, unit_ms=True) -> dict[str, list[int]]:
     return trains
 
 
-def check_gaps(events) -> list[int]:
-    """Steps of events that come too close to the previous one."""
+def check_gaps(events, min_gap: int) -> list[int]:
+    """Steps of events that come closer than ``min_gap`` steps to the previous one."""
     bad = []
     for (a, _), (b, _) in zip(events, events[1:]):
-        if b - a < MIN_EVENT_GAP:
+        if b - a < min_gap:
             bad.append(b)
     return bad

@@ -13,7 +13,8 @@ from fsm_snn.builder import build, summary  # noqa: E402
 from fsm_snn.inputs import generate  # noqa: E402
 
 
-def run(spec, **kw):
+def run(spec, arch="parallel", **kw):
+    spec = dict(spec, architecture=arch)
     net = build(spec)
     inp = generate(spec, **kw)
     last = max([e for e, _ in inp["events"]] + [10])
@@ -36,23 +37,27 @@ def test_templates_random():
     for sp in specs:
         errs, _ = S.validate(sp)
         assert not errs, errs
-        for seed in range(5):
-            check(run(sp, mode="random", n_events=80, seed=seed, max_gap=9, p_input=0.5))
-            m = check(run(sp, mode="random", n_events=300, seed=seed, p_input=0.4))
-            if any(x["accepting"] for x in sp["states"]):
-                assert m["expected_detections"] >= 1, (sp["name"], seed)
+        for arch, lo in [("pipelined", 3), ("parallel", 1)]:
+            for seed in range(5):
+                check(run(sp, arch, mode="random", n_events=80, seed=seed, min_gap=lo, max_gap=9, p_input=0.5))
+                m = check(run(sp, arch, mode="random", n_events=300, seed=seed, min_gap=lo, p_input=0.4))
+                if any(x["accepting"] for x in sp["states"]):
+                    assert m["expected_detections"] >= 1, (sp["name"], seed)
 
 
 def test_min_gap_events_back_to_back():
     sp = S.template_detector()
-    check(run(sp, mode="random", n_events=200, min_gap=5, max_gap=5, seed=3, p_input=0.5))
+    check(run(sp, "pipelined", mode="random", n_events=200, min_gap=3, max_gap=3, seed=3, p_input=0.5))
+    check(run(sp, "parallel", mode="random", n_events=200, min_gap=1, max_gap=1, seed=3, p_input=0.5))
 
 
 def test_counts_paper_simple():
-    c = summary(S.template_simple())
+    c = summary(dict(S.template_simple(), architecture="pipelined"))
     assert c["states"] == 3 and c["neurons"] > 0
     # 3 latches (9) + OP + delay + NOT SGf + NOT SGb + 3 NOT states + 4 terms
     assert c["neurons"] == 9 + 1 + 1 + 2 + 3 + 4
+    # the parallel implementation adds the "no event" neuron of the bypasses
+    assert summary(dict(S.template_simple(), architecture="parallel"))["neurons"] == c["neurons"] + 1
 
 
 def test_manual_inputs():
@@ -65,8 +70,8 @@ def test_manual_inputs():
 def test_mixed_inputs():
     """Typed spikes are inserted on top of the random sequence and always kept;
     random events too close to them are dropped, so spacing stays valid."""
-    from fsm_snn.builder import MIN_EVENT_GAP
     from fsm_snn.inputs import check_gaps
+    MIN_EVENT_GAP = 5                       # default minimum spacing of the random events
     sp = S.template_simple()
     for seed in range(5):
         kw = dict(n_events=40, seed=seed, p_input=0.5, manual={"SGf": "52, 120", "SGb": "52, 200"})
@@ -75,7 +80,7 @@ def test_mixed_inputs():
         steps = [t for t, _ in inp["events"]]
         assert {52, 120, 200} <= set(steps)
         assert dict(inp["events"])[52] == {"SGf", "SGb"}       # typed together -> one event
-        assert not check_gaps(inp["events"])
+        assert not check_gaps(inp["events"], MIN_EVENT_GAP)
         kept = [e for e in rnd["events"] if all(abs(e[0] - m) >= MIN_EVENT_GAP for m in (52, 120, 200))]
         assert inp["dropped"] == len(rnd["events"]) - len(kept)
         assert len(inp["events"]) == len(kept) + 3

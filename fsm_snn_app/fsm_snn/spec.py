@@ -46,6 +46,8 @@ def normalise(spec: dict) -> dict:
     """Return a cleaned deep copy of ``spec`` with defaults filled in."""
     s = copy.deepcopy(spec or {})
     s.setdefault("name", "FSM")
+    if s.get("architecture") not in ("pipelined", "parallel"):
+        s["architecture"] = "parallel"           # builder.DEFAULT_ARCHITECTURE
     s["inputs"] = [str(i).strip() for i in s.get("inputs", []) if str(i).strip()]
     states = []
     for k, st in enumerate(s.get("states", [])):

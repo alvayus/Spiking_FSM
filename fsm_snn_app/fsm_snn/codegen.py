@@ -1,10 +1,14 @@
 """Readable PyNN code of the network that implements a machine.
 
-Unlike the stand-in script exported from the Simulate tab (which loads the netlist
-from JSON), this code spells the network out: one population per gate or latch,
-named after its role, and one projection per synapse with a comment that says
-what it does. It is generated from the same netlist (``builder.build``), so it is
-the exact network that the application simulates.
+The code spells the network out: one population per gate or latch, named after
+its role, and one projection per synapse with a comment that says what it does.
+It is generated from the same netlist (``builder.build``), so it is the exact
+network that the application simulates.
+
+* Network tab (``generate_code``): the network, the input spikes and the run.
+* Simulate tab (``generate_code(..., simulation=True)``): the same code plus the
+  comparison with the reference automaton and the saved results, so the script
+  needs nothing but PyNN (and, optionally, matplotlib for the plot).
 """
 
 from __future__ import annotations
@@ -12,7 +16,9 @@ from __future__ import annotations
 import datetime as _dt
 import re
 
-from .builder import INIT_STEP, build
+from .analysis import _expected_state_steps
+from .builder import INIT_STEP, OUTPUT_LATENCY, build
+from .reference import run_reference
 from .pynn_runner import DEFAULT_NEURON_PARAMS, DEFAULT_WEIGHTS
 from .spec import normalise, option_to_text, validate
 
@@ -22,7 +28,7 @@ def _ident(text: str) -> str:
     return ("n_" + t) if t[0].isdigit() else t
 
 
-def generate_code(spec: dict, params: dict | None = None) -> dict:
+def generate_code(spec: dict, params: dict | None = None, simulation: bool = False) -> dict:
     from .pipeline import _sim_defaults, make_inputs     # local import: avoids a cycle
     s = normalise(spec)
     errors, _ = validate(s)
@@ -72,6 +78,8 @@ def generate_code(spec: dict, params: dict | None = None) -> dict:
         elif kind == "not_state":
             name = label[4:]
             var, com = unique("NOT_" + name), f"NOT gate of state {name}"
+        elif kind == "no_event":
+            var, com = unique("no_event"), "bypass: an input event at t is not followed by one at t+1"
         elif kind == "term":
             tid, k = term_info[i]
             t = trans[tid]
@@ -101,12 +109,19 @@ def generate_code(spec: dict, params: dict | None = None) -> dict:
             return "OP", f"input {pn} drives OP"
         if qk == "delay":
             return "NOT gates and delay neuron", "OP -> delay"
+        if qk == "no_event":
+            return "NOT gates and delay neuron", ("OP of the event at t excites it" if rec == "exc"
+                                                  else "OP of an event at t+1 inhibits it")
+        if qk == "not_state" and pk == "term":
+            st = qn[4:]
+            return "NOT gates and delay neuron", (f"bypass, event 2 steps earlier: {pn} leaves {st}" if rec == "exc"
+                                                  else f"bypass, event 2 steps earlier: {pn} enters {st}")
         if qk in ("not_input", "not_state"):
             if rec == "exc":
                 return "NOT gates and delay neuron", f"OP excites {qn}"
             if qk == "not_input":
                 return "NOT gates and delay neuron", f"input {pn} inhibits {qn}"
-            return "NOT gates and delay neuron", f"ring of latch {pn.split('.')[0]} inhibits {qn} (state active)"
+            return "NOT gates and delay neuron", f"latch {pn.split('.')[0]} inhibits {qn} (state active)"
         if qk == "term":
             if pk == "delay":
                 return "AND gates (transition terms)", f"delay excites {qn}"
@@ -114,6 +129,11 @@ def generate_code(spec: dict, params: dict | None = None) -> dict:
                 return "AND gates (transition terms)", f"{pn}: source state {pn[4:]} must be active"
             if pk == "not_input":
                 return "AND gates (transition terms)", f"{pn}: {pn[4:]} must spike"
+            if pk == "term":
+                return "AND gates (transition terms)", (f"bypass, previous event: {pn} enters the source state" if rec == "exc"
+                                                        else f"bypass, previous event: {pn} leaves the source state")
+            if pk == "no_event":
+                return "AND gates (transition terms)", "no event now: cancels the bypass of the previous event"
             return "AND gates (transition terms)", f"input {pn}: {pn} must not spike"
         if qk == "latch":
             st = qn.split(".")[0]
@@ -127,15 +147,19 @@ def generate_code(spec: dict, params: dict | None = None) -> dict:
         return "Output", f"{pn} -> output"
 
     sections = {}
-    for pre, post, rec, delay in net.conns:
+    for pre, post, rec, delay, mult in net.conns:
         sec, com = explain(pre, post, rec)
-        sections.setdefault(sec, []).append((pre, post, rec, delay, com))
+        sections.setdefault(sec, []).append((pre, post, rec, delay, mult, com))
 
     lines = []
     w = lines.append
     slug = _ident(s["name"]).lower()
     c = net.counts()
-    w(f'"""PyNN implementation of the spiking FSM "{s["name"]}".')
+    if simulation:
+        w("#!/usr/bin/env python3")
+        w(f'"""Simulation of the spiking FSM "{s["name"]}" with PyNN, stand-alone.')
+    else:
+        w(f'"""PyNN implementation of the spiking FSM "{s["name"]}".')
     w("")
     w(f"Generated by the Spiking FSM builder on {_dt.datetime.now():%Y-%m-%d %H:%M}.")
     w(f"{c['neurons']} neurons and {c['synapses']} synapses ({c['excitatory']} excitatory, "
@@ -144,6 +168,13 @@ def generate_code(spec: dict, params: dict | None = None) -> dict:
     w("Every state is a latch of three neurons: index 0 is the set neuron (N1) and")
     w("indices 1 and 2 are the ring neurons (N2, N3), which keep spiking while the state")
     w("is active. Input spike times come from the settings of the Simulate tab.")
+    if simulation:
+        w("")
+        w("The script builds the network, runs it, compares the states (and Output) with")
+        w("the reference automaton computed by the application, and saves the spikes and")
+        w(f"a raster plot in ./results_{slug}/. It only needs PyNN with sPyNNaker")
+        w("(matplotlib is optional, for the plot). Run it on the computer connected to the")
+        w(f"SpiNNaker board:  python run_{slug}.py")
     w('"""')
     w("")
     w("import pyNN.spiNNaker as sim")
@@ -166,10 +197,11 @@ def generate_code(spec: dict, params: dict | None = None) -> dict:
     w("")
     w("")
     w("def connect(pre, post, receptor, conns):")
-    w('    """conns: list of (index in pre, index in post, delay in time steps)."""')
+    w('    """conns: list of (index in pre, index in post, delay in time steps[, weight multiple])."""')
     w('    weight = W_EXC if receptor == "excitatory" else W_INH')
     w("    return sim.Projection(pre, post,")
-    w("                          sim.FromListConnector([(i, j, weight, d * DT) for i, j, d in conns]),")
+    w("                          sim.FromListConnector([(c[0], c[1], weight * (c[3] if len(c) > 3 else 1), c[2] * DT)")
+    w("                                                 for c in conns]),")
     w("                          synapse_type=sim.StaticSynapse(), receptor_type=receptor)")
     w("")
     w("")
@@ -196,22 +228,24 @@ def generate_code(spec: dict, params: dict | None = None) -> dict:
             continue
         w(f"# ------------------------------------------------------------ {sec.lower()}")
         latch_internal = {}
-        for pre, post, rec, delay, com in sections[sec]:
+        for pre, post, rec, delay, mult, com in sections[sec]:
             (pv, pi), (qv, qi) = ref(pre), where[post]
             receptor = "excitatory" if rec == "exc" else "inhibitory"
             if com == "internal connections of the latch":
                 latch_internal.setdefault((pv, receptor), []).append((pi, qi, delay))
                 continue
-            w(f"connect({pv}, {qv}, {receptor!r}, [({pi}, {qi}, {delay})])   # {com}")
+            wt = f", {mult}" if mult != 1 else ""
+            note = f" (weight x{mult})" if mult != 1 else ""
+            w(f"connect({pv}, {qv}, {receptor!r}, [({pi}, {qi}, {delay}{wt})])   # {com}{note}")
         for (var, receptor), conns in latch_internal.items():
-            what = ("N1 -> N2 (set), N2 <-> N3 (ring)" if receptor == "excitatory"
-                    else "N1 inhibits itself, the ring inhibits N1")
-            w(f"connect({var}, {var}, {receptor!r}, {conns!r})   # {what}")
+            w(f"connect({var}, {var}, {receptor!r}, {conns!r})   # N1 -> N2 (set), N2 <-> N3 (ring)")
         w("")
     w("# ------------------------------------------------------------ run")
     w("latches = {" + ", ".join(f"{st_by_id[sid]['name']!r}: {var}" for sid, var in latch_of.items()) + "}")
     w("for pop in latches.values():")
     w('    pop.record("spikes")')
+    if simulation and net.output is not None:
+        w(f'{where[net.output][0]}.record("spikes")')
     w("sim.run(DURATION * DT)")
     w("")
     w("active_steps = {}")
@@ -220,6 +254,101 @@ def generate_code(spec: dict, params: dict | None = None) -> dict:
     w("    ring = trains[1:]                    # the state is active while N2 / N3 spike")
     w("    active_steps[name] = sorted({int(round(float(t) / DT)) for tr in ring for t in tr.magnitude})")
     w('    print(f"{name}: active at steps {active_steps[name]}")')
+    if simulation and net.output is not None:
+        w(f'output_steps = sorted(int(round(float(t) / DT)) for t in {where[net.output][0]}.get_data("spikes").segments[0].spiketrains[0].magnitude)')
     w("sim.end()")
+    if simulation:
+        _comparison(w, s, net, inp, last + 30, slug)
     text = "\n".join(lines) + "\n"
-    return dict(ok=True, filename=f"pynn_{slug}.py", text=text)
+    return dict(ok=True, filename=(f"run_{slug}.py" if simulation else f"pynn_{slug}.py"), text=text)
+
+def _comparison(w, s, net, inp, duration, slug):
+    """Simulate tab: compare with the reference automaton and save the results."""
+    events = inp["events"]
+    ref = run_reference(s, events)
+    exp = _expected_state_steps(s, events, ref, duration)
+    initial = next((st["name"] for st in s["states"] if st["initial"]), None)
+    out = net.output is not None
+    w("")
+    w("# ------------------------------------------------------------ comparison with the reference")
+    w("# Computed by the application from the reference automaton: the steps in which each")
+    w("# latch ring must spike ([first, last] ranges) and the steps of the expected Output spikes.")
+    w(f"EVENTS = {[[e, sorted(ev)] for e, ev in events]!r}   # [step, inputs that spike]")
+    w("EXPECTED = {")
+    for st in s["states"]:
+        w(f"    {st['name']!r}: {_ranges(exp[st['id']])!r},")
+    w("}")
+    if out:
+        w(f"EXPECTED_OUTPUT = {[e + OUTPUT_LATENCY for e in ref['detections']]!r}")
+    w(f"INITIAL_STATE, READY_STEP = {initial!r}, {INIT_STEP + 2}")
+    w("")
+    w("# a simulator may shift every spike by a constant number of steps: measure it on the")
+    w("# initial state, which must become active at READY_STEP")
+    w("first = active_steps.get(INITIAL_STATE) or [READY_STEP]")
+    w("offset = first[0] - READY_STEP")
+    w("missing, extra = {}, {}")
+    w("for name, rs in EXPECTED.items():")
+    w("    want = {t + offset for a, b in rs for t in range(a, b + 1) if t + offset < DURATION}")
+    w("    got = set(active_steps[name])")
+    w("    missing[name], extra[name] = sorted(want - got), sorted(got - want)")
+    if out:
+        w("want = {t + offset for t in EXPECTED_OUTPUT if t + offset < DURATION}")
+        w('missing["Output"], extra["Output"] = sorted(want - set(output_steps)), sorted(set(output_steps) - want)')
+    w("n_miss = sum(len(v) for v in missing.values())")
+    w("n_extra = sum(len(v) for v in extra.values())")
+    w('print(f"Time offset: {offset} steps")')
+    w("for name in missing:")
+    w("    if missing[name] or extra[name]:")
+    w('        print(f"{name}: missing spikes at steps {missing[name]}, extra spikes at steps {extra[name]}")')
+    w('print("The network behaves exactly like the reference automaton." if n_miss + n_extra == 0')
+    w('      else f"Differences with the reference: {n_miss} missing, {n_extra} extra spikes.")')
+    w("")
+    w("# ------------------------------------------------------------ save the results")
+    w("import json")
+    w("import os")
+    w("")
+    w(f'folder = "results_{slug}"')
+    w("os.makedirs(folder, exist_ok=True)")
+    w('with open(os.path.join(folder, "results.json"), "w") as f:')
+    w("    json.dump(dict(dt=DT, duration=DURATION, offset=offset, events=EVENTS, active_steps=active_steps,")
+    w("                   missing=missing, extra=extra" + (", output_steps=output_steps" if out else "") + "), f, indent=1)")
+    w("try:")
+    w("    import matplotlib")
+    w('    matplotlib.use("Agg")')
+    w("    import matplotlib.pyplot as plt")
+    w("    inputs = {}")
+    w("    for step, names in EVENTS:")
+    w("        for n in names:")
+    w("            inputs.setdefault(n, []).append(step)")
+    w(f"    rows = [(n, inputs.get(n, []), None) for n in {s['inputs']!r}]")
+    w("    rows += [(n, active_steps[n], EXPECTED[n]) for n in EXPECTED]")
+    if out:
+        w('    rows.append(("Output", output_steps, [[t, t] for t in EXPECTED_OUTPUT]))')
+    w("    fig, ax = plt.subplots(figsize=(12, 0.45 * len(rows) + 1))")
+    w("    for k, (name, steps, want) in enumerate(rows):")
+    w("        for a, b in want or []:                  # expected activity, in grey")
+    w("            ax.fill_between([(a + offset - .5) * DT, (b + offset + .5) * DT], k - .4, k + .4, color=\"#e2e8f0\")")
+    w("        bad = set(extra.get(name, []))")
+    w("        ax.vlines([t * DT for t in steps], k - .3, k + .3, colors=[\"#c0392b\" if t in bad else \"#334155\" for t in steps], lw=1)")
+    w("        ax.vlines([t * DT for t in missing.get(name, [])], k - .3, k + .3, colors=\"#e67e22\", lw=2)")
+    w("    ax.set_yticks(range(len(rows)), [r[0] for r in rows])")
+    w("    ax.set_ylim(-.5, len(rows) - .5)")
+    w("    ax.set_xlim(0, DURATION * DT)")
+    w('    ax.set_xlabel("Time (ms)")')
+    w('    ax.set_title("Grey: expected. Red: extra spikes. Orange: missing spikes.", fontsize=9, loc="left")')
+    w("    fig.tight_layout()")
+    w('    fig.savefig(os.path.join(folder, "raster.png"), dpi=130)')
+    w("except ImportError:")
+    w('    print("matplotlib is not installed: the plot is not saved")')
+    w('print("Results saved in", folder)')
+
+
+def _ranges(steps):
+    out = []
+    for t in sorted(steps):
+        if out and t == out[-1][1] + 1:
+            out[-1][1] = t
+        else:
+            out.append([t, t])
+    return out
+

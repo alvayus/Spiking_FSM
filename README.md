@@ -41,10 +41,10 @@ cd fsm_snn_app
 ..\.venv\Scripts\python run_app.py
 ```
 
-Without PyNN the application works the same with the **Ideal** simulator. The Simulate tab can also download a **stand-alone PyNN script** to run on the computer connected to the SpiNN-3 board:
+Without PyNN the application works the same with the **Ideal** simulator: it uses no specific neuron model, only Boolean units that fire when they receive an input spike, after the synaptic delays of the network. SpiNNaker uses PyNN's `IF_curr_exp` neuron model. **PyNN code** in the Simulate tab gives a **stand-alone script** with everything needed: the network written out as in the Network tab (one population per gate or latch, one projection per synapse), the input spikes, the run, the comparison with the reference automaton and the saved results. It only needs PyNN with sPyNNaker (matplotlib is optional, for the plot); run it on the computer connected to the SpiNN-3 board:
 
 ```bash
-python run_<machine_name>.py --backend spinnaker
+python run_<machine_name>.py
 ```
 
 ### Web version (GitHub Pages)
@@ -73,7 +73,7 @@ python -m http.server 8770       # then open http://127.0.0.1:8770/_site/
    - The condition is also shown as a sum of products (terms joined by ∨), which can be edited input by input.
    - Mark which states are active at start. Several states may be active at the same time, for example in non-deterministic machines.
    - The **Summary** panel shows the number of states and transitions, and checks the machine live (errors, warnings and notes on how it will behave).
-   - **Open…** (Ctrl + O) shows a file dialog that browses the disk (it starts in `designs/`), and **▾** next to it reopens a recent file. **Save** (Ctrl + S) writes over the file that was opened or saved last, whose name is shown next to the buttons (with • while there are unsaved changes); **Save as…** (Ctrl + Shift + S) chooses a new file and asks before replacing an existing one. The local server reads and writes the files ([`fsm_snn/files.py`](fsm_snn_app/fsm_snn/files.py)), so this works in any browser; only folders and `.json` files are listed, and only the application's own page may use it.
+   - The file buttons are in the Design tab's toolbar. **Open…** (Ctrl + O) shows a file dialog that browses the disk (it starts in `designs/`), and **▾** next to it reopens a recent file. **Save** (Ctrl + S) writes over the file that was opened or saved last, whose name is shown next to the buttons (with • while there are unsaved changes); **Save as…** (Ctrl + Shift + S) chooses a new file and asks before replacing an existing one. The local server reads and writes the files ([`fsm_snn/files.py`](fsm_snn_app/fsm_snn/files.py)), so this works in any browser; only folders and `.json` files are listed, and only the application's own page may use it.
    - The canvas works like draw.io: drag the background to select several states (Shift / Ctrl + click adds to the selection), Space + drag, right drag or scroll to move, Ctrl + scroll (or pinch) to zoom, arrows to nudge, Ctrl + C / X / V / D to copy, cut, paste and duplicate, and **Grid** to snap states to the grid. The full list is under *Navigation and shortcuts* in the help panel.
 2. **Network.**
    - Shows the generated network neuron by neuron and synapse by synapse, with the colours of the paper: inputs blue, OP orange, NOT gates red, delay neuron yellow, AND gates (transition terms) purple and latches green.
@@ -85,9 +85,9 @@ python -m http.server 8770       # then open http://127.0.0.1:8770/_site/
    - **Save image** saves the whole diagram, with the current names and the neuron types shown, as SVG (vector) or PNG, in the folder chosen in the same file dialog as the machines.
    - **PyNN code** shows the network as readable PyNN code (one population per gate or latch, one projection per synapse, with comments), generated from the same netlist that is simulated, and lets you copy or download it.
 3. **Simulate.**
-   - Choose the simulator and how the input spikes are generated: **Random** (a new random sequence of input events on every run; its seed is saved with the results), **Manual** (spike times typed by hand) or **Random + manual** (typed spikes inserted on top of a random sequence; random events closer than 5 steps to a typed one are left out).
+   - Choose the simulator and how the input spikes are generated: **Random** (a new random sequence of input events on every run; its seed is saved with the results), **Manual** (spike times typed by hand) or **Random + manual** (typed spikes inserted on top of a random sequence; random events closer than the minimum spacing to a typed one are left out). The spacing between random events is the user's choice; the generated network guarantees correct behaviour for events at least 5 steps apart, and closer events are reported after the run.
    - Press **Simulate**. The activity of the network is compared with a reference automaton; if they differ, the missing and extra spikes of each state are listed and highlighted in the plot (missing spikes in orange, extra spikes in red).
-   - The activity raster follows the layout of the figures of the paper (inputs at the bottom, then OP, the states and Output on top). With SpiNNaker, **Show expected** draws the activity of the reference in grey behind it.
+   - The activity raster follows the layout of the figures of the paper (inputs at the bottom, then OP, the states and Output on top). With either simulator, **Show expected** adds below it the plot of the FSM itself (input signals and states), which changes state at the very step of each input event (no synaptic delays). **Save image** saves the plots shown as SVG or PNG. Extra and missing spikes are found by comparing the network with that reference shifted by its processing time (states 6 steps, Output 4 steps after the event).
    - Every run is saved in `results/<date>_<name>_<simulator>/`: `fsm.json`, `simulation.json` with spikes and metrics, and `raster.png`.
 
 ### State behaviour
@@ -109,9 +109,10 @@ A transition condition is stored as a sum of products: each term is an AND of li
 | OP | 1 | Input-driven OR: spikes whenever any input spikes |
 | Delay | 1 (shared) | Yellow neuron of the AND gate |
 | NOT of each input used as a positive literal | 1 per input | Excited by OP, inhibited by the input |
-| NOT of each source state | 1 per state | Excited by OP, inhibited by the latch ring |
+| NOT of each source state | 1 per state | Excited by OP, inhibited by the latch (N1, N2, N3) |
 | Transition term (AND) | 1 per term | Excited by the delay neuron, inhibited by the NOT gates and by the inputs of the negated literals |
-| Latch | 3 per state | Set → N1 → ring N2 ↔ N3. N1 inhibits itself and is inhibited by N2 and N3; Reset inhibits N2 and N3 |
+| Latch | 3 per state | Set → N1 → ring N2 ↔ N3; Reset inhibits N2 and N3. Setting a state that is already active does no harm |
+| No event at *t* + 1 (parallel only) | 1 | Spikes when an input event is not followed by another one on the next step; cancels the bypass of that event |
 | Output (internal, optional) | 1 | OR of the transitions entering states flagged as `accepting` in the JSON specification. The editor does not create it; the built-in sequence detectors used by the tests use it. |
 
 Timing, in time steps after an input event at time step *t*:
@@ -121,11 +122,15 @@ Timing, in time steps after an input event at time step *t*:
 | *t* + 1 | OP |
 | *t* + 2 | NOT gates and delay neuron (state sampled at *t* + 1) |
 | *t* + 3 | Transitions |
-| *t* + 4 | Output and reset of the source state |
-| *t* + 5 | Set of the destination |
-| *t* + 6 | Destination active |
+| *t* + 4 | Output, reset of the source state and set of the destination (N1) |
+| *t* + 5 | Destination active (ring) |
 
-Events must therefore be at least 5 steps apart. Synaptic delays are computed automatically so that every signal arrives at the step it is needed. For any specification the cost is linear: 3·|S| latch neurons, plus one neuron per transition term, plus the shared NOT gates.
+Two implementations, chosen in the Network tab and saved with the machine (`"architecture"` in the JSON):
+
+* **Pipelined**, the paradigm of the manuscript: each transition reads the state stored in the latches, which hold the result of an event from *t* + 4 on. Correct behaviour is guaranteed for events at least **3 steps** apart, as in the simple case of the manuscript (closer events can be simulated, and are reported).
+* **Parallel** (default), with bypasses as in the pattern detector of the manuscript: the transitions fired by the one or two previous events are forwarded to the next event, so it does not wait for the latches. Events two steps apart reach the NOT gates of the states (entering a state inhibits its NOT gate, leaving it excites it); events on consecutive steps reach the AND gates directly, and a "no event" neuron cancels that excitation when no event follows. More recent events always outweigh older ones and the latches, so **any spacing** works, even events on consecutive steps. The weights are whole multiples of the excitatory and inhibitory weights, and every neuron receives either at least one excitatory weight more than its inhibition or no more than it, so the result does not depend on the exact threshold of the neuron model: the Ideal simulator and SpiNNaker give the same spikes.
+
+The application reads the state the network is in after every event from the transitions it fires, since with the bypasses a state that lasts a single event may never reach its latch ring (as noted in the manuscript). Synaptic delays are computed automatically so that every signal arrives at the step it is needed. For any specification the cost is linear: 3·|S| latch neurons, plus one neuron per transition term, plus the shared NOT gates.
 
 ### Code structure (`fsm_snn_app/`)
 
@@ -157,5 +162,5 @@ python tests/test_codegen.py     # the readable PyNN code builds exactly the sim
 
 * **Synaptic weights.** The default weights (1.0 nA excitatory, 2.0 nA inhibitory) and the parameters of Table 1 are in [`fsm_snn/pynn_runner.py`](fsm_snn_app/fsm_snn/pynn_runner.py). They have not been copied from the experiments in `experiments/`: adjust them in that file before using SpiNNaker.
 * **Time step.** The Ideal simulator gives the same result for any time step (it only changes the time scale in ms). SpiNNaker accepts any whole number of microseconds; below 1 ms it runs slower than real time. Only the 1 ms step has been used in the experiments.
-* **No bypass.** The generic builder does not implement the parallel-transition mechanism of the paper's detector, which allows events 1τ apart. Correctness is guaranteed for events at least 5τ apart. The gate library is isolated in `builder.py` so it can be replaced with the exact implementation used in `experiments/`.
+* **Implementations.** The pipelined network needs events at least 3τ apart; the parallel one (bypasses) accepts events 1τ apart for any machine, at the cost of extra synapses (and one neuron). Both have been checked against the reference automaton with random machines and random trains on the Ideal simulator, and spike for spike against SpiNNaker.
 * **Validation without hardware.** The PyNN code path has only been verified with a stand-in that reproduces the PyNN API. The first run on SpiNNaker should confirm a 100 % state agreement.

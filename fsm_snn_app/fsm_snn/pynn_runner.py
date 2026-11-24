@@ -45,7 +45,7 @@ def run_pynn(netlist, trains, backend="spinnaker", dt=1.0, duration_steps=None,
     neurons = netlist["neurons"]
     sources = netlist["sources"]
     conns = netlist["conns"]
-    init_step = netlist.get("init_step", 5)
+    init_step = netlist.get("init_step", 0)
 
     last = max([s for tr in trains.values() for s in tr] + [init_step])
     if duration_steps is None:
@@ -69,9 +69,11 @@ def run_pynn(netlist, trains, backend="spinnaker", dt=1.0, duration_steps=None,
         pop.record("spikes")
 
         groups = {}
-        for pre, post, receptor, delay in conns:
+        for c in conns:
+            pre, post, receptor, delay = c[:4]
+            mult = c[4] if len(c) > 4 else 1     # whole multiple of the weight
             key = (pre[0], receptor)
-            weight = w["exc"] if receptor == "exc" else w["inh"]
+            weight = mult * (w["exc"] if receptor == "exc" else w["inh"])
             groups.setdefault(key, []).append((int(pre[1]), int(post), weight, float(delay) * dt))
         for (pre_kind, receptor), lst in groups.items():
             pre_pop = src_pop if pre_kind == "src" else pop

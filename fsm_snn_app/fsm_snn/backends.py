@@ -15,8 +15,14 @@ from .builder import INIT_STEP, Netlist
 from .pynn_runner import DEFAULT_WEIGHTS
 
 BACKENDS = {
-    "ideal": "Ideal (built-in, no PyNN): discrete-time Boolean neurons",
+    "ideal": "Ideal (built-in, no PyNN)",
     "spinnaker": "SpiNNaker (pyNN.spiNNaker / sPyNNaker)",
+}
+BACKEND_DESC = {
+    "ideal": ("No specific neuron model: each neuron is a Boolean unit that fires when it "
+              "receives an input spike."),
+    "spinnaker": ("The network runs on the SpiNNaker board with PyNN's IF_curr_exp neuron "
+                  "model (current-based leaky integrate-and-fire)."),
 }
 
 
@@ -87,7 +93,7 @@ def available_backends() -> list[dict]:
     out = []
     for key, label in BACKENDS.items():
         ok, why = (True, "") if key == "ideal" else _check_backend(key)
-        out.append(dict(id=key, label=label, available=ok, reason=why))
+        out.append(dict(id=key, label=label, desc=BACKEND_DESC[key], available=ok, reason=why))
     return out
 
 
@@ -107,9 +113,11 @@ def simulate_ideal(net: Netlist | dict, trains: dict, duration_steps: int | None
     theta = 0.5 * w["exc"]
     n = len(d["neurons"])
     out_src, out_n = {}, {}
-    for pre, post, rec, delay in d["conns"]:
+    for c in d["conns"]:
+        pre, post, rec, delay = c[:4]
+        mult = c[4] if len(c) > 4 else 1         # whole multiple of the weight
         tgt = out_src if pre[0] == "src" else out_n
-        tgt.setdefault(int(pre[1]), []).append((post, rec, delay))
+        tgt.setdefault(int(pre[1]), []).append((post, rec, delay, mult))
     src_spikes = {}
     for k, src in enumerate(d["sources"]):
         steps = trains.get(src["input"], []) if src["kind"] == "input" else [INIT_STEP]
@@ -121,12 +129,12 @@ def simulate_ideal(net: Netlist | dict, trains: dict, duration_steps: int | None
     spikes = {i: [] for i in range(n)}
 
     def schedule(lst, t):
-        for post, rec, delay in lst:
+        for post, rec, delay, mult in lst:
             tab = exc if rec == "exc" else inh
             row = tab.setdefault(t + delay, {})
-            row[post] = row.get(post, 0.0) + (w["exc"] if rec == "exc" else w["inh"])
+            row[post] = row.get(post, 0.0) + mult * (w["exc"] if rec == "exc" else w["inh"])
 
-    for t in range(T + 1):
+    for t in range(T):             # steps 0 .. T-1, as PyNN's sim.run(T * dt) records
         e_row, i_row = exc.pop(t, {}), inh.pop(t, {})
         fired = [j for j, v in e_row.items() if v - i_row.get(j, 0.0) >= theta]
         for j in fired:

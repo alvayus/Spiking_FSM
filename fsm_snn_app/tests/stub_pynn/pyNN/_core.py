@@ -75,7 +75,7 @@ def run(duration):
             for t in times: src_sp.setdefault(int(round(t / dt)), []).append((id(s), i))
     w_exc = min(w for lst in out.values() for (_, _, w, _) in lst if w > 0)
     res = {id(p): {} for p in pops}
-    for t in range(steps + 1):
+    for t in range(steps):          # like sPyNNaker: steps 0 .. steps-1
         fired = [k for k, v in arrivals.pop(t, {}).items() if v >= 0.5 * w_exc]
         for (po, j) in fired: res[po].setdefault(j, []).append(t)
         for key in src_sp.get(t, []): sched(key, t)

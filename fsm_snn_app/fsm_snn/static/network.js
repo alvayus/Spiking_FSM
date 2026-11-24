@@ -24,6 +24,7 @@ const NET_STYLE = {
   delay:     { fill: "#fff2cc", stroke: "#d6b656", name: "Delay neuron of the AND gates" },
   not_input: { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate of an input" },
   not_state: { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate of a state" },
+  no_event:  { fill: "#f8cecc", stroke: "#b85450", name: "Bypass: no event at t+1" },
   term:      { fill: "#e1d5e7", stroke: "#9673a6", name: "AND gate (transition term)" },
   latch:     { fill: "#d5e8d4", stroke: "#82b366", name: "Latch neuron" },
   output:    { fill: "#f5f5f5", stroke: "#666666", name: "Output neuron" },
@@ -34,9 +35,10 @@ const NET_DESC = {
   op: "Input-driven OR: spikes one step after any input spikes. It triggers every evaluation of the gates.",
   delay: "Yellow neuron of the AND gates: repeats OP one step later and provides the excitation of every AND gate.",
   not_input: "Excited by OP and inhibited by the input: spikes when there is an input event and this input did not spike.",
-  not_state: "Excited by OP and inhibited by the ring of the latch: spikes when there is an input event and the state is not active.",
-  term: "Excited by the delay neuron and inhibited by the NOT gates of its positive literals, by the inputs of its negated literals and by the NOT gate of its source state. It spikes when the source state is active and the term holds; it then sets the destination latch and resets the source latch.",
-  set: "Set neuron (N1) of the latch: starts the ring. It inhibits itself and is inhibited by the ring, so a state that is already active is not set twice.",
+  not_state: "Excited by OP and inhibited by the latch (N1, N2, N3): spikes when there is an input event and the state is not active. In the parallel implementation, the transitions of the event two steps earlier override the latch (bypass).",
+  no_event: "Parallel implementation: spikes when an input event is not followed by another one on the next step. It cancels the bypass of that event towards the AND gates, so a bypass never fires a transition by itself.",
+  term: "Excited by the delay neuron and inhibited by the NOT gates of its positive literals, by the inputs of its negated literals and by the NOT gate of its source state. It spikes when the source state is active and the term holds; it then sets the destination latch and resets the source latch. In the parallel implementation it also receives the transitions of the previous event (bypass): entering its source state excites it, leaving it inhibits it.",
+  set: "Set neuron (N1) of the latch: starts the ring. Setting a state that is already active does no harm (both ring neurons may then spike on every step until the next reset).",
   ring: "Ring neuron (N2 / N3) of the latch: the two ring neurons excite each other, so the state is active while they keep spiking. A transition that leaves the state inhibits them (reset).",
   output: "OR of the transitions that enter states marked as accepting in the JSON specification.",
 };
@@ -45,7 +47,7 @@ const NET_GROUPS = [
   ["source", "Spike sources (inputs, init)", ["input", "init"]],
   ["op", "OP (OR of the inputs)", ["op"]],
   ["delay", "Delay neuron", ["delay"]],
-  ["not", "NOT gates", ["not_input", "not_state"]],
+  ["not", "NOT gates", ["not_input", "not_state", "no_event"]],
   ["term", "AND gates (transitions)", ["term"]],
   ["latch", "Latches (states)", ["latch"]],
   ["output", "Output", ["output"]],
@@ -65,7 +67,7 @@ let netPinned = null;
 let netHover = null;
 
 function netKeyOf(s) {
-  return JSON.stringify([s.inputs, s.states.map((x) => [x.id, x.name, !!x.initial, !!x.accepting]),
+  return JSON.stringify([archOf(), s.inputs, s.states.map((x) => [x.id, x.name, !!x.initial, !!x.accepting]),
     s.transitions.map((t) => [t.id, t.from, t.to, t.options])]);
 }
 
@@ -112,7 +114,7 @@ function netLayout(net) {
   const stack = (list, x, dy) => list.forEach((n, k) => Object.assign(n, { x, y: mid + (k - (list.length - 1) / 2) * dy }));
   stack(all.filter((n) => n.src), COLX.src, 70);
   stack(all.filter((n) => n.kind === "op"), COLX.op, 70);
-  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input")), COLX.gate, TERM_DY);
+  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input"), all.filter((n) => n.kind === "no_event")), COLX.gate, TERM_DY);
   stack(all.filter((n) => n.kind === "output"), COLX.out, 70);
   for (const n of all) {
     if (n.x === undefined) Object.assign(n, { x: COLX.out, y: mid });
@@ -120,10 +122,14 @@ function netLayout(net) {
   }
 
   // ---- synapses: kind of route
-  const edges = net.conns.map(([pre, post, rec, delay], i) => {
-    const e = { i, from: (pre[0] === "src" ? "s" : "n") + pre[1], to: "n" + post, rec, delay };
+  const edges = net.conns.map(([pre, post, rec, delay, w = 1], i) => {
+    const e = { i, from: (pre[0] === "src" ? "s" : "n") + pre[1], to: "n" + post, rec, delay, w };
     const P = nodes[e.from], Q = nodes[e.to];
-    if (e.from === e.to) e.type = "self";
+    // bypasses of the parallel implementation: between AND gates, towards NOT(state), "no event"
+    e.bypass = (P.kind === "term" && (Q.kind === "term" || Q.kind === "not_state")) || P.kind === "no_event";
+    if (P.kind === "term" && Q.kind === "term") e.type = "bypassTerm";
+    else if (P.kind === "term" && Q.kind === "not_state") e.type = "bypassBack";
+    else if (e.from === e.to) e.type = "self";
     else if (P.kind === "latch" && Q.kind === "not_state") { e.type = P.j === 1 ? "arcTop" : "arcBottom"; e.band = bands[P.sid]; }
     else if (P.kind === "latch" && Q.kind === "latch" && P.sid === Q.sid) e.type = "local";
     else if (Q.major > P.major) e.type = "wire";
@@ -225,6 +231,15 @@ function netEdgePath(e, D) {
     const sg = e.type === "arcTop" ? -1 : 1, yy = sg < 0 ? e.band.top + 18 : e.band.bottom - 18;
     return roundedPath([[P.x, P.y + sg * (NR + 0.5)], [P.x, yy], [Q.x, yy], [Q.x, Q.y + sg * (NR + GAP)]], 10);
   }
+  if (e.type === "bypassTerm") {         // between AND gates of the same column: curve on their right
+    const bend = COLX.term + NR + 30 + Math.min(60, Math.abs(P.y - Q.y) * 0.15);
+    if (e.from === e.to) return `M${P.x + NR},${P.y - 5} C${bend},${P.y - 30} ${bend},${P.y + 30} ${P.x + NR + GAP},${P.y + 5}`;
+    return `M${P.x + NR},${P.y} C${bend},${P.y} ${bend},${Q.y} ${Q.x + NR + GAP},${Q.y}`;
+  }
+  if (e.type === "bypassBack") {         // AND gate -> NOT(state), one column back: curve below
+    const yb = Math.max(P.y, Q.y) + 40;
+    return `M${P.x - NR},${P.y} C${P.x - 60},${yb} ${Q.x + 60},${yb} ${Q.x + NR + GAP},${Q.y}`;
+  }
   return roundedPath(latchRoute(e, P, Q), 5);
 }
 
@@ -315,7 +330,7 @@ function netGlyph(n) {
   if (n.kind === "init") return "init";
   if (n.kind === "op") return "OP";
   if (n.kind === "delay") return "Δ";
-  if (n.kind === "not_input" || n.kind === "not_state") return "¬";
+  if (n.kind === "not_input" || n.kind === "not_state" || n.kind === "no_event") return "¬";
   if (n.kind === "term") return "∧";
   if (n.kind === "latch") return "N" + (n.j + 1);
   return "out";
@@ -324,6 +339,7 @@ function netLabelLines(n) {
   if (n.kind === "input" && n.label.length > 3) return [n.label];
   if (n.kind === "not_input" || n.kind === "not_state") return [n.label.replace(/^NOT /, "¬")];
   if (n.kind === "delay") return ["delay"];
+  if (n.kind === "no_event") return ["no event", "at t+1"];
   if (n.kind === "term") {
     const t = transById(n.tid);
     return [n.label.replace(/ \(\d+\)$/, ""), t ? optionText(t.options[n.k]) : ""];
@@ -343,7 +359,7 @@ function netName(n) {
 }
 
 function drawNetwork() {
-  const D = netData, show = { exc: $("#netExc").checked, inh: $("#netInh").checked };
+  const D = netData, show = { exc: $("#netExc").checked, inh: $("#netInh").checked, bypass: $("#netBypass").checked };
   const visible = (n) => !netHidden.has(n.kind);
   const parts = [];
   const ed = (key, def) => `data-lbl="${esc(key)}" data-def="${esc(def)}"`;
@@ -356,10 +372,10 @@ function drawNetwork() {
   const eparts = [];
   for (const e of D.edges) {
     const P = D.nodes[e.from], Q = D.nodes[e.to];
-    if (!show[e.rec] || !visible(P) || !visible(Q)) continue;
+    if (!show[e.rec] || (e.bypass && !show.bypass) || !visible(P) || !visible(Q)) continue;
     const d = netEdgePath(e, D);
-    const tip = `${netName(P)} → ${netName(Q)} · ${e.rec === "exc" ? "excitatory" : "inhibitory"}`;
-    eparts.push(`<g class="syn ${e.rec}" data-e="${e.i}"><title>${esc(tip)}</title>
+    const tip = `${netName(P)} → ${netName(Q)} · ${e.rec === "exc" ? "excitatory" : "inhibitory"}${e.w !== 1 ? ` · weight ×${e.w}` : ""}${e.bypass ? " · bypass" : ""} · delay ${e.delay}`;
+    eparts.push(`<g class="syn ${e.rec}${e.bypass ? " bypass" : ""}" data-e="${e.i}"><title>${esc(tip)}</title>
       <path class="hit" d="${d}"/><path class="line" d="${d}" marker-end="url(#${e.rec === "exc" ? "synExc" : "synInh"})"/></g>`);
   }
   const nparts = Object.values(D.nodes).filter(visible).map((n) => {
@@ -421,7 +437,7 @@ function netDetails() {
   const lat = netLatency(netPinned);
   let latHtml = "";
   if (n.kind === "input") latHtml = `<p class="lat"><b>t</b><span>An input event happens at time step t.</span></p>`;
-  else if (n.kind === "init") latHtml = `<p class="lat"><b>t = 5</b><span>Single spike at the start of the simulation.</span></p>`;
+  else if (n.kind === "init") latHtml = `<p class="lat"><b>t = 0</b><span>Single spike at the start of the simulation.</span></p>`;
   else if (lat) {
     const chain = [netData.nodes[lat.path[0].from]].concat(lat.path.map((e) => netData.nodes[e.to])).map(netName).map(esc).join(" → ");
     latHtml = lat.from === "input"
@@ -455,7 +471,17 @@ async function fetchNetwork() {
   if (netPinned && !netData.nodes[netPinned]) netPinned = null;
   return true;
 }
+// Implementation of the network (builder.ARCHITECTURES), saved with the machine.
+const archOf = () => (info.architectures[spec.architecture] ? spec.architecture : info.default_architecture);
+function renderArch() {
+  const cur = archOf();
+  $("#archList").innerHTML = Object.entries(info.architectures).map(([id, a]) => `<label>
+    <input type="radio" name="arch" value="${id}" ${id === cur ? "checked" : ""}>
+    <span>${esc(a.label)}<small>${esc(a.desc)}</small></span></label>`).join("");
+  $("#netBypassField").hidden = cur !== "parallel";
+}
 async function loadNetwork() {
+  renderArch();
   if (!(await fetchNetwork())) {
     $("#netLayer").innerHTML = "";
     $("#netEmpty").hidden = false;
@@ -545,11 +571,16 @@ function netPngBase64(text, W, H, scale = 2) {
 async function saveNetImage(kind) {
   $("#netSaveMenu").hidden = true;
   if (!netData) return toast("There is no network to save yet");
-  const { text, W, H } = netSvgText(), ext = "." + kind;
+  const { text, W, H } = netSvgText();
   let body;
   try { body = kind === "svg" ? { text } : { base64: await netPngBase64(text, W, H) }; }
   catch (e) { return toast(e.message); }
-  const base = (filePath ? baseName(filePath).replace(/\.json$/i, "") : slug(spec.name)) + "_network";
+  writeImage(kind, text, body, "_network", "the network");
+}
+// Save an exported image (SVG text, or PNG as base64 in body) next to the machine file.
+async function writeImage(kind, text, body, suffix, what) {
+  const ext = "." + kind;
+  const base = (filePath ? baseName(filePath).replace(/\.json$/i, "") : slug(spec.name)) + suffix;
   if (WEB) {          // the browser downloads the image
     if (kind === "svg") download(base + ext, text, "image/svg+xml");
     else download(base + ext, await (await fetch("data:image/png;base64," + body.base64)).blob(), "image/png");
@@ -557,7 +588,7 @@ async function saveNetImage(kind) {
   }
   fileDialog("save", {
     ext, name: base + ext, dirKey: "fsm_snn_img_dir",
-    title: `Save the network as ${kind.toUpperCase()}`,
+    title: `Save ${what} as ${kind.toUpperCase()}`,
     write: async (path, overwrite) => {
       const r = await api("/api/fs/write", { path, overwrite, ...body });
       if (r.ok) toast(`Image saved as ${r.name}`);
@@ -581,10 +612,20 @@ function highlightPython(src) {
   return out + esc(src.slice(last));
 }
 let codeCache = null;
-async function showCode() {
-  const r = await api("/api/code", { spec, params: collectParams() });
+const CODE_KINDS = {
+  network: { url: "/api/code", title: "PyNN code",
+    note: "One population per gate or latch and one projection per synapse, generated from the same netlist that the application simulates. Input spike times and parameters come from the <b>Simulate</b> tab." },
+  script: { url: "/api/script", title: "PyNN script of the simulation",
+    note: "Stand-alone script with everything needed: the network written out as in the <b>Network</b> tab, the input spikes and parameters of this tab, the run, the comparison with the reference automaton and the saved results (spikes and a raster plot). It only needs PyNN with sPyNNaker. Run it on the computer connected to the SpiNNaker board: <code>python SCRIPT</code>." },
+};
+// kind: "network" (Network tab) or "script" (Simulate tab: the whole simulation)
+async function showCode(kind = "network") {
+  const k = CODE_KINDS[kind];
+  const r = await api(k.url, { spec, params: collectParams() });
   if (!r.ok) return toast((r.errors || ["Error"]).join(" · "), 5000);
   codeCache = r;
+  $("#codeTitle").textContent = k.title;
+  $("#codeNote").innerHTML = k.note.replace("SCRIPT", esc(r.filename));
   $("#codeName").textContent = r.filename;
   $("#codeView").innerHTML = highlightPython(r.text);
   $("#codeModal").hidden = false;
@@ -608,13 +649,19 @@ function initNetwork() {
     const n = e.target.closest(".nn"); if (!n) return;
     netPinned = n.dataset.n === netPinned ? null : n.dataset.n; netHighlight(); netDetails();
   });
-  ["#netExc", "#netInh"].forEach((id) => $(id).addEventListener("change", () => netData && drawNetwork()));
+  ["#netExc", "#netInh", "#netBypass"].forEach((id) => $(id).addEventListener("change", () => netData && drawNetwork()));
+  $("#archList").addEventListener("change", (e) => {
+    if (e.target.name !== "arch" || e.target.value === archOf()) return;
+    spec.architecture = e.target.value;
+    changed();
+    if (!$("#tab-network").classList.contains("active")) loadNetwork();
+  });
   $("#netKinds").addEventListener("change", (e) => {
     const kinds = NET_GROUPS.find((g) => g[0] === e.target.dataset.group)[2];
     kinds.forEach((k) => (e.target.checked ? netHidden.delete(k) : netHidden.add(k)));
     if (netData) drawNetwork();
   });
-  $("#btnCode").addEventListener("click", showCode);
+  $("#btnCode").addEventListener("click", () => showCode("network"));
   svgEl.addEventListener("dblclick", (e) => {
     const nn = e.target.closest(".nn");
     const t = e.target.closest("[data-lbl]") || (nn && nn.querySelector(".ng")); if (!t) return;

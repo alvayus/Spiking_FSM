@@ -28,10 +28,10 @@ def test_exported_script_runs(tmp="/tmp/fsm_export"):
     r = export_script(S.template_detector(), dict(mode="random", n_events=150, seed=2))
     path = os.path.join(tmp, r["filename"]); open(path, "w", encoding="utf-8").write(r["text"])
     env = dict(os.environ, PYTHONPATH=os.path.join(HERE, "stub_pynn"))
-    out = subprocess.run([sys.executable, path, "--backend", "spinnaker"], cwd=tmp, env=env,
+    out = subprocess.run([sys.executable, path], cwd=tmp, env=env,
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
-    assert "FN: 0" in out.stdout and "FP: 0" in out.stdout, out.stdout
+    assert "behaves exactly like the reference" in out.stdout, out.stdout
     print(out.stdout)
 
 if __name__ == "__main__":
