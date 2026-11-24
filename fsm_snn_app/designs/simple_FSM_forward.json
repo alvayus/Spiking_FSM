@@ -1,0 +1,64 @@
+{
+  "name": "Simple FSM (forward only)",
+  "inputs": [
+    "SGf"
+  ],
+  "transitions": [
+    {
+      "id": "t0",
+      "from": "s0",
+      "to": "s1",
+      "options": [
+        {
+          "SGf": "on"
+        }
+      ],
+      "expr": "SGf"
+    },
+    {
+      "id": "t1",
+      "from": "s1",
+      "to": "s2",
+      "options": [
+        {
+          "SGf": "on"
+        }
+      ],
+      "expr": "SGf"
+    },
+    {
+      "id": "t2",
+      "from": "s2",
+      "to": "s0",
+      "options": [
+        {
+          "SGf": "on"
+        }
+      ],
+      "expr": "SGf"
+    }
+  ],
+  "states": [
+    {
+      "id": "s0",
+      "name": "S0",
+      "x": 396,
+      "y": 242,
+      "initial": true
+    },
+    {
+      "id": "s1",
+      "name": "S1",
+      "x": 506,
+      "y": 440,
+      "initial": false
+    },
+    {
+      "id": "s2",
+      "name": "S2",
+      "x": 264,
+      "y": 440,
+      "initial": false
+    }
+  ]
+}

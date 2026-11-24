@@ -1,0 +1,140 @@
+{
+  "name": "Pattern detector",
+  "inputs": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "transitions": [
+    {
+      "id": "t0",
+      "from": "s0",
+      "to": "s1",
+      "options": [
+        {
+          "A": "on"
+        }
+      ],
+      "expr": "A"
+    },
+    {
+      "id": "t1",
+      "from": "s0",
+      "to": "s0",
+      "options": [
+        {
+          "A": "on"
+        }
+      ],
+      "expr": "A"
+    },
+    {
+      "id": "t2",
+      "from": "s1",
+      "to": "s2",
+      "options": [
+        {
+          "C": "on",
+          "B": "off"
+        },
+        {
+          "D": "on",
+          "B": "off"
+        }
+      ],
+      "expr": "(C ∨ D) ∧ ¬B"
+    },
+    {
+      "id": "t3",
+      "from": "s1",
+      "to": "s0",
+      "options": [
+        {
+          "B": "on"
+        },
+        {
+          "C": "off",
+          "D": "off"
+        }
+      ],
+      "expr": "B ∨ (¬C ∧ ¬D)"
+    },
+    {
+      "id": "t4",
+      "from": "s2",
+      "to": "s3",
+      "options": [
+        {
+          "B": "on",
+          "C": "on"
+        }
+      ],
+      "expr": "B ∧ C"
+    },
+    {
+      "id": "t5",
+      "from": "s2",
+      "to": "s0",
+      "options": [
+        {
+          "B": "off"
+        },
+        {
+          "C": "off"
+        }
+      ],
+      "expr": "¬B ∨ ¬C"
+    },
+    {
+      "id": "t6",
+      "from": "s3",
+      "to": "s0",
+      "options": [
+        {
+          "A": "on"
+        },
+        {
+          "B": "on"
+        },
+        {
+          "C": "on"
+        },
+        {
+          "D": "on"
+        }
+      ],
+      "expr": "A ∨ B ∨ C ∨ D"
+    }
+  ],
+  "states": [
+    {
+      "id": "s0",
+      "name": "S0",
+      "x": 396,
+      "y": 484,
+      "initial": true
+    },
+    {
+      "id": "s1",
+      "name": "S1",
+      "x": 198,
+      "y": 308,
+      "initial": false
+    },
+    {
+      "id": "s2",
+      "name": "S2",
+      "x": 396,
+      "y": 132,
+      "initial": false
+    },
+    {
+      "id": "s3",
+      "name": "Detected",
+      "x": 594,
+      "y": 308,
+      "initial": false
+    }
+  ]
+}
