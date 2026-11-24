@@ -47,6 +47,23 @@ Without PyNN the application works the same with the **Ideal** simulator. The Si
 python run_<machine_name>.py --backend spinnaker
 ```
 
+### Web version (GitHub Pages)
+
+The application is also published at **https://alvayus.github.io/Spiking_FSM/**, with nothing to install. The same Python package runs in the browser with [Pyodide](https://pyodide.org) (Python compiled to WebAssembly), so Design, Network (with its PyNN code) and Simulate with the **Ideal** simulator work as in the local application. The differences:
+
+- SpiNNaker is not available: run the application locally for that.
+- **Open…** reads a file from your computer, **Save** downloads the machine, and the recent files are copies kept in the browser. The **▾** menu also offers the example machines of `designs/`.
+- Simulation results are not saved to a `results/` folder.
+- Python takes a few seconds to load (longer on the first visit, while it downloads).
+
+The site is built by [`build_web.py`](fsm_snn_app/build_web.py) and published by the [GitHub Pages workflow](.github/workflows/pages.yml) on every push to `main` that changes `fsm_snn_app/`. To try the build locally:
+
+```bash
+cd fsm_snn_app
+python build_web.py              # writes _site/
+python -m http.server 8770       # then open http://127.0.0.1:8770/_site/
+```
+
 ### Usage
 
 1. **Design.**
@@ -119,6 +136,7 @@ Events must therefore be at least 5 steps apart. Synaptic delays are computed au
 | `fsm_snn/builder.py` | Machine → netlist of neurons and synapses (the spiking gates and latches) |
 | `fsm_snn/codegen.py` | Netlist → readable PyNN code (Network tab) |
 | `fsm_snn/files.py` | Design files on disk: folder listing, open and save (Open / Save / recent files) |
+| `fsm_snn/web.py`, `static/web.js`, `build_web.py` | Web version: the API run in the browser by Pyodide, and the build of the static site |
 | `fsm_snn/inputs.py`, `reference.py`, `analysis.py` | Input spike trains, reference automaton and comparison of the simulation with it |
 | `fsm_snn/backends.py`, `pynn_runner.py`, `pipeline.py` | Ideal simulator, PyNN execution and the end-to-end run and stand-alone script |
 | `fsm_snn/server.py` | HTTP API used by the web page |

@@ -1,0 +1,46 @@
+# Publish the web version of the Spiking FSM builder on GitHub Pages.
+# The site is built by fsm_snn_app/build_web.py; the Python package runs in the
+# browser with Pyodide, so no server is needed.
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["fsm_snn_app/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test
+        working-directory: fsm_snn_app
+        run: for f in tests/test_*.py; do python "$f"; done
+      - name: Build the site
+        run: python fsm_snn_app/build_web.py --out _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

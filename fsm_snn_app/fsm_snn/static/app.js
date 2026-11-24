@@ -38,7 +38,15 @@ async function init() {
   $("#btnSaveAs").addEventListener("click", () => saveSpec(true));
   $("#btnOpen").addEventListener("click", openSpec);
   $("#btnRecent").addEventListener("click", toggleRecentMenu);
-  $("#recentMenu").addEventListener("click", (e) => { const b = e.target.closest("[data-recent]"); if (b) openRecent(b.dataset.recent); });
+  $("#recentMenu").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-recent], [data-example]");
+    if (b) b.dataset.example ? openExample(b.dataset.example) : openRecent(b.dataset.recent);
+  });
+  if (info.web) {
+    $("#webBadge").hidden = false;
+    $("#btnOpen").title = "Open a machine from this computer (Ctrl+O)";
+    $("#btnSave").title = $("#btnSaveAs").title = "Download the machine as a JSON file";
+  }
   document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".split")) $("#recentMenu").hidden = true; });
   initFileDialog();
   $("#btnAddState").addEventListener("click", () => {

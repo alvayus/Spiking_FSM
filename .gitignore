@@ -3,3 +3,4 @@
 */reports/
 __pycache__/
 /.venv/
+/fsm_snn_app/_site/

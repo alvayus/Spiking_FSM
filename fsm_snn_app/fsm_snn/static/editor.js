@@ -568,6 +568,10 @@ async function runCheck() {
 // The local server reads and writes the design files (fsm_snn/files.py), so this works
 // in any browser: Save writes over the file that was opened or saved last, and the
 // recent files are remembered by their path. The file dialog browses the disk.
+// The web version (web.js) has no disk access: Open reads a file chosen in the
+// browser, Save downloads it, the recent files are copies kept in the browser and
+// the Recent menu also offers the bundled example machines.
+const WEB = !!window.FSM_WEB;
 const MAX_RECENT = 8;
 let filePath = null;            // file of the machine being edited
 let dirty = false;              // changes since the last open or save
@@ -591,24 +595,35 @@ function restoreFile() { filePath = load("fsm_snn_file"); dirty = !!load("fsm_sn
 // ---- recent files: [{path, time}], most recent first
 function recentList() { const l = load("fsm_snn_recent"); return Array.isArray(l) ? l : []; }
 function addRecent(path) {
-  store("fsm_snn_recent", [{ path, time: Date.now() }, ...recentList().filter((r) => r.path !== path)].slice(0, MAX_RECENT));
+  const entry = { path, time: Date.now(), ...(WEB ? { spec: JSON.parse(JSON.stringify(spec)) } : {}) };
+  store("fsm_snn_recent", [entry, ...recentList().filter((r) => r.path !== path)].slice(0, MAX_RECENT));
 }
-function toggleRecentMenu() {
+async function toggleRecentMenu() {
   const menu = $("#recentMenu");
   if (!menu.hidden) { menu.hidden = true; return; }
   const list = recentList();
   const when = (t) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  menu.innerHTML = `<div class="menu-head">Recent files</div>` + (list.length
-    ? list.map((r, k) => `<button class="menu-item" data-recent="${k}" title="${esc(r.path)}"><b>${esc(baseName(r.path))}</b><span>${esc(dirName(r.path))} · ${when(r.time)}</span></button>`).join("")
+  const examples = WEB ? await webExamples : [];
+  menu.innerHTML = (examples.length ? `<div class="menu-head">Examples</div>` + examples.map((e) =>
+      `<button class="menu-item" data-example="${esc(e.file)}"><b>${esc(e.name)}</b><span>${esc(e.file)}</span></button>`).join("") : "")
+    + `<div class="menu-head">Recent files</div>` + (list.length
+    ? list.map((r, k) => `<button class="menu-item" data-recent="${k}" title="${esc(r.path)}"><b>${esc(baseName(r.path))}</b><span>${WEB ? "copy kept in this browser" : esc(dirName(r.path))} · ${when(r.time)}</span></button>`).join("")
       + `<button class="menu-item clear" data-recent="clear">Clear the list</button>`
     : `<div class="menu-empty">No recent files yet</div>`);
   menu.hidden = false;
 }
-function openRecent(k) {
+async function openRecent(k) {
   $("#recentMenu").hidden = true;
   if (k === "clear") { store("fsm_snn_recent", []); return toast("Recent files cleared"); }
   const r = recentList()[+k];
-  if (r) openPath(r.path);
+  if (!r) return;
+  if (WEB) loadMachine(r.spec, r.path);
+  else openPath(r.path);
+}
+async function openExample(file) {
+  $("#recentMenu").hidden = true;
+  try { loadMachine(await (await fetch("designs/" + encodeURIComponent(file))).json(), file, false); }
+  catch (e) { toast(`Could not open ${file}`); }
 }
 
 // ---- file dialog: open a machine, save it as, or save an image of the network.
@@ -724,11 +739,16 @@ async function openPath(path) {
     if (r.missing) store("fsm_snn_recent", recentList().filter((x) => x.path !== path));
     return toast((r.errors || ["Could not open the file"]).join(" ") + (r.missing ? " It was removed from the recent files." : ""), 4500);
   }
-  let s = null; try { s = JSON.parse(r.text); } catch (e) { /* checked below */ }
-  if (!s || !Array.isArray(s.states) || !Array.isArray(s.inputs)) return toast(`${r.name} is not a valid machine`);
+  let s = null; try { s = JSON.parse(r.text); } catch (e) { /* checked by loadMachine */ }
+  loadMachine(s, r.path);
+}
+// Show a machine read from a file; remember the file unless it is a bundled example.
+function loadMachine(s, path, remember = true) {
+  const name = baseName(path);
+  if (!s || !Array.isArray(s.states) || !Array.isArray(s.inputs)) return toast(`${name} is not a valid machine`);
   pushUndo(); spec = sanitize(s); sel = { type: null, id: null }; changed(); showTab("design"); fitDesign();
-  setFile(r.path); addRecent(r.path);
-  toast(`${r.name} loaded`);
+  setFile(remember ? path : null); if (remember) addRecent(path);
+  toast(`${name} loaded`);
 }
 async function writeFile(path, overwrite) {
   const r = await api("/api/fs/write", { path, overwrite, text: JSON.stringify(spec, null, 2) });
@@ -736,8 +756,25 @@ async function writeFile(path, overwrite) {
   else if (!r.exists) toast("Could not save: " + (r.errors || ["unknown error"]).join(" "), 5000);
   return r;
 }
-function openSpec() { fileDialog("open"); }
+function openSpec() {
+  if (!WEB) return fileDialog("open");
+  $("#recentMenu").hidden = true;
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json,application/json";
+  inp.addEventListener("change", async () => {
+    const f = inp.files[0]; if (!f) return;
+    let s = null; try { s = JSON.parse(await f.text()); } catch (e) { /* checked by loadMachine */ }
+    loadMachine(s, f.name);
+  });
+  inp.click();
+}
 function saveSpec(saveAs = false) {
+  if (WEB) {          // the browser downloads the file
+    let name = filePath && !saveAs ? filePath : slug(spec.name) + ".json";
+    if (saveAs) { name = prompt("File name", name); if (!name) return; if (!/\.json$/i.test(name)) name += ".json"; }
+    download(name, JSON.stringify(spec, null, 2)); setFile(name); addRecent(name);
+    return toast(`Downloaded as ${name}`);
+  }
   if (saveAs || !filePath) return fileDialog("save");
   writeFile(filePath, true);
 }

@@ -542,6 +542,11 @@ async function saveNetImage(kind) {
   try { body = kind === "svg" ? { text } : { base64: await netPngBase64(text, W, H) }; }
   catch (e) { return toast(e.message); }
   const base = (filePath ? baseName(filePath).replace(/\.json$/i, "") : slug(spec.name)) + "_network";
+  if (WEB) {          // the browser downloads the image
+    if (kind === "svg") download(base + ext, text, "image/svg+xml");
+    else download(base + ext, await (await fetch("data:image/png;base64," + body.base64)).blob(), "image/png");
+    return toast(`Downloaded as ${base + ext}`);
+  }
   fileDialog("save", {
     ext, name: base + ext, dirKey: "fsm_snn_img_dir",
     title: `Save the network as ${kind.toUpperCase()}`,

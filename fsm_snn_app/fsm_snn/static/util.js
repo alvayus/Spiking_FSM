@@ -9,6 +9,7 @@ const fmt = (x, d = 0) => (x === null || x === undefined || Number.isNaN(x)) ? "
   Number(x).toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
 
 async function api(path, body) {
+  if (window.FSM_WEB) return webApi(path, body);      // web version: Python in the browser (web.js)
   const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   const r = await fetch(path, opt);
   const data = await r.json().catch(() => ({ ok: false, errors: ["Invalid response from the server"] }));
