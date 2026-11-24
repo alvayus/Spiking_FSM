@@ -472,7 +472,8 @@ function drawNetwork() {
   const eparts = [];
   for (const e of D.edges) {
     const P = D.nodes[e.from], Q = D.nodes[e.to];
-    if (!show[e.rec] || (e.bypass && !show.bypass) || !visible(P) || !visible(Q)) continue;
+    // bypasses have their own checkbox, independent of the excitatory / inhibitory ones
+    if ((e.bypass ? !show.bypass : !show[e.rec]) || !visible(P) || !visible(Q)) continue;
     const d = netEdgePath(e, D);
     const tip = `${netName(P)} → ${netName(Q)} · ${e.rec === "exc" ? "excitatory" : "inhibitory"}${e.w !== 1 ? ` · weight ×${e.w}` : ""}${e.bypass ? " · bypass" : ""} · delay ${e.delay}`;
     eparts.push(`<g class="syn ${e.rec}${e.bypass ? " bypass" : ""}" data-e="${e.i}"><title>${esc(tip)}</title>
@@ -494,7 +495,7 @@ function drawNetwork() {
       ${shape}<text class="ng" style="font-size:${gsize}px" ${ed(id + "#g", netGlyph(n))}>${esc(glyph)}</text>${lbl}</g>`;
   });
   // junction dots of the bypass trunks (only for the visible bypasses)
-  const shownBypass = D.edges.filter((e) => e.trunk && show.bypass && show[e.rec] && visible(D.nodes[e.from]) && visible(D.nodes[e.to]));
+  const shownBypass = D.edges.filter((e) => e.trunk && show.bypass && visible(D.nodes[e.from]) && visible(D.nodes[e.to]));
   const dots = bypassDots(shownBypass).map((p) => `<circle class="byp-dot ${p.rec}" cx="${p.x}" cy="${p.y}" r="2.2"/>`).join("");
   $("#netLayer").innerHTML = parts.join("") + `<g>${eparts.join("")}${dots}</g><g>${nparts.join("")}</g>`;
   $("#btnNetReset").hidden = !spec.net_labels;
