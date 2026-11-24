@@ -1,5 +1,5 @@
 """Core tests: the generated SNN (ideal back-end) must match the reference
-automaton on every template, for random and planted inputs."""
+automaton on every template, for random inputs."""
 
 import os
 import sys
@@ -30,7 +30,7 @@ def check(res):
     return m
 
 
-def test_templates_random_and_planted():
+def test_templates_random():
     specs = [S.template_simple(), S.template_detector(), S.template_counter(5),
              S.template_sequence("ABBA"), S.template_sequence("AAB")]
     for sp in specs:
@@ -38,9 +38,9 @@ def test_templates_random_and_planted():
         assert not errs, errs
         for seed in range(5):
             check(run(sp, mode="random", n_events=80, seed=seed, max_gap=9, p_input=0.5))
-            m = check(run(sp, mode="planted", n_events=60, planted=5, seed=seed, p_input=0.4))
+            m = check(run(sp, mode="random", n_events=300, seed=seed, p_input=0.4))
             if any(x["accepting"] for x in sp["states"]):
-                assert m["expected_detections"] >= 1
+                assert m["expected_detections"] >= 1, (sp["name"], seed)
 
 
 def test_min_gap_events_back_to_back():
@@ -62,7 +62,27 @@ def test_manual_inputs():
     assert m["events"] == 4
 
 
-def test_scaling_linear():
+def test_mixed_inputs():
+    """Typed spikes are inserted on top of the random sequence and always kept;
+    random events too close to them are dropped, so spacing stays valid."""
+    from fsm_snn.builder import MIN_EVENT_GAP
+    from fsm_snn.inputs import check_gaps
+    sp = S.template_simple()
+    for seed in range(5):
+        kw = dict(n_events=40, seed=seed, p_input=0.5, manual={"SGf": "52, 120", "SGb": "52, 200"})
+        inp = generate(sp, mode="mixed", **kw)
+        rnd = generate(sp, mode="random", **{k: v for k, v in kw.items() if k != "manual"})
+        steps = [t for t, _ in inp["events"]]
+        assert {52, 120, 200} <= set(steps)
+        assert dict(inp["events"])[52] == {"SGf", "SGb"}       # typed together -> one event
+        assert not check_gaps(inp["events"])
+        kept = [e for e in rnd["events"] if all(abs(e[0] - m) >= MIN_EVENT_GAP for m in (52, 120, 200))]
+        assert inp["dropped"] == len(rnd["events"]) - len(kept)
+        assert len(inp["events"]) == len(kept) + 3
+        check(run(sp, mode="mixed", **kw))
+
+
+def test_cost_linear_in_states():
     prev = None
     for n in range(2, 11):
         c = summary(S.template_counter(n))

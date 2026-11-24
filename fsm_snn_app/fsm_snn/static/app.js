@@ -24,7 +24,7 @@ async function init() {
   initNetwork();
   setSnap(load("fsm_snn_grid") !== false);
   $("#btnGrid").addEventListener("click", () => setSnap(!snap));
-  renderBackends(); renderParams(); restoreSimFields(); renderManualFields();
+  renderBackends(); restoreSimFields(); renderManualFields();
   $("#btnUndo").disabled = true;
 
   $$(".tab").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
@@ -46,12 +46,13 @@ async function init() {
   $("#pInput").addEventListener("input", () => ($("#pInputOut").textContent = fmt(+$("#pInput").value, 2)));
   $("#btnSimulate").addEventListener("click", simulate);
   $("#btnScript").addEventListener("click", downloadScript);
-  $("#btnResetParams").addEventListener("click", renderParams);
   $("#showAll").addEventListener("change", drawRaster);
   $("#showExpected").addEventListener("change", drawRaster);
   $("#zoom").addEventListener("input", drawRaster);
-  $("#btnScaling").addEventListener("click", runScaling);
-  $("#btnScalingCsv").addEventListener("click", scalingCsv);
-  window.addEventListener("resize", () => { if (lastResult) drawRaster(); if (scaleRows) drawScaleChart(); });
+  $("#manualList").addEventListener("input", checkTyped);
+  $("#dt").addEventListener("input", () => { checkTyped(); updateGapMs(); });
+  ["#minGap", "#maxGap"].forEach((id) => $(id).addEventListener("input", updateGapMs));
+  updateGapMs();
+  window.addEventListener("resize", () => { if (lastResult) drawRaster(); });
 }
 init();

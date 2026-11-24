@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .builder import INIT_STEP, OUTPUT_LATENCY, STATE_LATENCY, Netlist
+from .builder import INIT_STEP, MIN_EVENT_GAP, OUTPUT_LATENCY, STATE_LATENCY, Netlist
 from .inputs import check_gaps
 from .reference import run_reference
 from .spec import normalise
@@ -49,7 +49,7 @@ def _expected_state_steps(s, events, ref, end_step):
 
 
 def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
-            duration_steps: int, tolerance: int = 1) -> dict:
+            duration_steps: int, tolerance: int = 1, dt: float = 1.0) -> dict:
     s = normalise(spec)
     names = {x["id"]: x["name"] for x in s["states"]}
     ref = run_reference(s, events)
@@ -101,9 +101,16 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     precision = tp / (tp + fp) if tp + fp else None
     recall = tp / (tp + fn) if tp + fn else None
 
+    ms = lambda steps: f"{steps * dt:g} ms"
+    early = [e for e, _ in events if e <= INIT_STEP + 2]
+    if early:
+        warnings.append(f"{len(early)} event(s) arrive before the initial states are set "
+                        f"(step {INIT_STEP + 2}, {ms(INIT_STEP + 2)} with a {dt:g} ms time step); "
+                        "they are not evaluated correctly.")
     gaps = check_gaps(events)
     if gaps:
-        warnings.append(f"{len(gaps)} events arrive less than 5 steps after the previous one; "
+        warnings.append(f"{len(gaps)} events arrive less than {MIN_EVENT_GAP} steps "
+                        f"({ms(MIN_EVENT_GAP)} with a {dt:g} ms time step) after the previous one; "
                         "correct behaviour is not guaranteed for them.")
 
     # ---- raster for the UI --------------------------------------------------------
@@ -129,21 +136,7 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
         tp=tp, fp=fp, fn=fn, precision=precision, recall=recall,
         mean_latency=(sum(latencies) / len(latencies) if latencies else None),
         offset=offset, total_spikes=sum(len(v) for v in spikes.values()),
-        synaptic_events=None,
     )
     return dict(metrics=metrics, rows=rows, all_rows=all_rows, per_event=per_event,
-                warnings=warnings, fn_steps=fn_steps,
-                fp_steps=unmatched, reference=ref)
+                warnings=warnings, reference=ref)
 
-
-def synaptic_event_count(net: Netlist, spikes: dict, trains: dict) -> int:
-    """Number of synaptic events (spikes x outgoing synapses): an energy proxy."""
-    out_n, out_s = {}, {}
-    for pre, _post, _rec, _d in net.conns:
-        tgt = out_s if pre[0] == "src" else out_n
-        tgt[pre[1]] = tgt.get(pre[1], 0) + 1
-    total = sum(len(v) * out_n.get(i, 0) for i, v in spikes.items())
-    for k, src in enumerate(net.sources):
-        n_spk = len(trains.get(src["input"], [])) if src["kind"] == "input" else 1
-        total += n_spk * out_s.get(k, 0)
-    return total

@@ -31,7 +31,7 @@ def check(sp, params):
 
 def test_code_matches_runner():
     for sp in [S.template_simple(), S.template_detector(), S.template_counter(4), S.template_sequence("ABBA")]:
-        check(sp, dict(mode="planted", n_events=30, planted=2, seed=3))
+        check(sp, dict(mode="random", n_events=40, seed=3))
 
 
 if __name__ == "__main__":

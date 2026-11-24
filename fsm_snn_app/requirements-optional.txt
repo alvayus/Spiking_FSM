@@ -1,6 +1,13 @@
-# The application itself only needs the Python standard library (>= 3.9).
-# Optional:
-matplotlib        # raster.png in the results folder
-PyNN>=0.12        # PyNN back-ends
-sPyNNaker         # SpiNNaker (pyNN.spiNNaker)
-# nest-simulator / brian2   # other PyNN back-ends
+﻿# The application itself only needs the Python standard library (>= 3.9).
+#
+# Optional packages, pinned to the versions used for the SpiNNaker experiments
+# of the paper (provenance of experiments/reports, 2025-09-05, Python 3.10):
+sPyNNaker==1!7.3.0   # SpiNNaker (pyNN.spiNNaker); pulls the SpiNN* 7.3.0 tool chain
+PyNN==0.12.4         # PyNN back-ends
+neo==0.14.2
+numpy==2.2.6
+scipy==1.15.3
+quantities==0.16.2
+lazyarray==0.6.0
+ebrains-drive==0.6.0
+matplotlib==3.10.3   # raster.png in the results folder

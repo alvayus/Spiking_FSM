@@ -1,4 +1,4 @@
-"""End-to-end pipeline used by the UI, the scaling study and the CLI:
+"""End-to-end pipeline used by the UI and the CLI:
 spec -> network -> input spike trains -> simulation -> analysis -> saved results.
 """
 
@@ -8,16 +8,17 @@ import datetime as _dt
 import inspect
 import json
 import os
+import random
 import re
 import time
 
 from . import pynn_runner
-from .analysis import analyse, synaptic_event_count
-from .backends import simulate
-from .builder import INIT_STEP, OUTPUT_LATENCY, build, summary
+from .analysis import analyse
+from .backends import SpiNNakerUnavailable, simulate
+from .builder import INIT_STEP, MIN_EVENT_GAP, OUTPUT_LATENCY, build, summary
 from .inputs import generate
 from .reference import run_reference
-from .spec import normalise, sequence_for_n, template_counter, template_sequence, validate
+from .spec import normalise, validate
 
 RESULTS_DIR = os.environ.get("FSM_SNN_RESULTS", os.path.join(os.getcwd(), "results"))
 
@@ -26,13 +27,15 @@ def _sim_defaults(p: dict | None) -> dict:
     p = dict(p or {})
     p.setdefault("backend", "ideal")
     p.setdefault("dt", 1.0)
-    p.setdefault("mode", "planted")
+    p.setdefault("mode", "random")
     p.setdefault("n_events", 60)
     p.setdefault("min_gap", 5)
     p.setdefault("max_gap", 15)
     p.setdefault("p_input", 0.4)
-    p.setdefault("planted", 3)
-    p.setdefault("seed", 1)
+    # a new seed on every run unless one is given (tests, reproducing a saved run);
+    # the seed used is returned and saved with the results
+    if p.get("seed") is None:
+        p["seed"] = random.SystemRandom().randrange(1, 2 ** 31)
     p.setdefault("manual", {})
     p.setdefault("weights", None)
     p.setdefault("neuron_params", None)
@@ -43,7 +46,7 @@ def _sim_defaults(p: dict | None) -> dict:
 def make_inputs(spec, p):
     return generate(spec, mode=p["mode"], n_events=int(p["n_events"]),
                     min_gap=int(p["min_gap"]), max_gap=int(p["max_gap"]),
-                    p_input=float(p["p_input"]), planted=int(p["planted"]),
+                    p_input=float(p["p_input"]),
                     seed=int(p["seed"]), manual=p.get("manual"), dt=float(p["dt"]))
 
 
@@ -52,27 +55,35 @@ def run(spec: dict, params: dict | None = None) -> dict:
     p = _sim_defaults(params)
     errors, warnings = validate(s)
     if errors:
-        return dict(ok=False, errors=errors, warnings=warnings)
+        return dict(ok=False, errors=errors, warnings=warnings, invalid_spec=True)
     net = build(s)
     inp = make_inputs(s, p)
     last = max([e for e, _ in inp["events"]] + [INIT_STEP])
     duration = last + 30
     t0 = time.time()
-    spikes = simulate(net, inp["trains"], backend=p["backend"], dt=float(p["dt"]),
-                      duration_steps=duration, neuron_params=p["neuron_params"],
-                      weights=p["weights"], seed=int(p["seed"]))
+    try:
+        spikes = simulate(net, inp["trains"], backend=p["backend"], dt=float(p["dt"]),
+                          duration_steps=duration, neuron_params=p["neuron_params"],
+                          weights=p["weights"])
+    except SpiNNakerUnavailable as e:
+        return dict(ok=False, errors=[str(e)])
+    except Exception as e:                    # noqa: BLE001 - report simulator failures to the UI
+        msg = str(e).splitlines()[0] if str(e) else ""
+        return dict(ok=False, errors=[f"The {p['backend']} simulation failed: {type(e).__name__}"
+                                      + (f": {msg}" if msg else "")])
     elapsed = time.time() - t0
-    res = analyse(s, net, spikes, inp["events"], inp["trains"], duration)
-    syn_ev = synaptic_event_count(net, spikes, inp["trains"])
-    res["metrics"]["synaptic_events"] = syn_ev
-    res["metrics"]["synaptic_events_per_event"] = (syn_ev / len(inp["events"])
-                                                   if inp["events"] else None)
+    res = analyse(s, net, spikes, inp["events"], inp["trains"], duration, dt=float(p["dt"]))
     res["metrics"]["wall_time_s"] = round(elapsed, 3)
-    out = dict(ok=True, warnings=warnings + res.pop("warnings"), summary=summary(s),
-               duration=duration, dt=float(p["dt"]), backend=p["backend"],
+    res.pop("reference")
+    notes = []
+    if inp.get("dropped"):
+        notes.append(f"{inp['dropped']} random event(s) were left out because they fell less than "
+                     f"{MIN_EVENT_GAP} steps from one of the typed spikes.")
+    out = dict(ok=True, warnings=warnings + res.pop("warnings"), notes=notes, summary=summary(s),
+               duration=duration, dt=float(p["dt"]), backend=p["backend"], seed=int(p["seed"]), mode=p["mode"],
                events=[[e, sorted(ev)] for e, ev in inp["events"]],
-               planted=inp["planted"], **res)
-    out["reference"] = dict(detections=res["reference"]["detections"])
+               manual_steps=inp.get("manual_steps", []),
+               **res)
     if p.get("save"):
         out["saved_to"] = save_results(s, p, inp, spikes, out, net)
     return out
@@ -109,48 +120,33 @@ def _save_raster_png(out, path):
         import matplotlib.pyplot as plt
     except Exception:
         return
-    rows = out["rows"]
-    colors = {"input": "#3b6fb6", "op": "#e08a1e", "state": "#3c9a5f", "output": "#7b3fa6"}
-    fig, ax = plt.subplots(figsize=(12, 0.45 * len(rows) + 1.2))
-    for k, row in enumerate(reversed(rows)):
+    # same layout as the figures of the paper: inputs at the bottom, then OP, a
+    # separator, the states and Output on top; time in ms
+    rows, dt = out["rows"], out["dt"]
+    colors = {"input": "#6c8ebf", "op": "#d79b00", "state": "#82b366", "output": "#9673a6"}
+    fig, ax = plt.subplots(figsize=(12, 0.32 * len(rows) + 1.2))
+    ax.hlines(range(len(rows)), 0, out["duration"] * dt, linestyles="dotted",
+              linewidth=0.6, color="indigo", alpha=0.3)
+    n_src = sum(r["kind"] in ("input", "op") for r in rows)
+    if 0 < n_src < len(rows):
+        ax.axhline(n_src - 0.5, linewidth=0.4, color="indigo")
+    for k, row in enumerate(rows):
         if row.get("expected"):
-            ax.scatter(row["expected"], [k] * len(row["expected"]), marker="|", s=90,
-                       color="#cccccc", linewidths=3)
-        ax.scatter(row["spikes"], [k] * len(row["spikes"]), marker="|", s=60,
-                   color=colors.get(row["kind"], "k"))
+            ax.scatter([t * dt for t in row["expected"]], [k] * len(row["expected"]),
+                       marker="|", s=90, color="#dddddd", linewidths=3)
+        ax.scatter([t * dt for t in row["spikes"]], [k] * len(row["spikes"]), marker="|",
+                   s=50, color=colors.get(row["kind"], "k"))
     ax.set_yticks(range(len(rows)))
-    ax.set_yticklabels([r["label"] for r in reversed(rows)])
-    ax.set_xlabel(f"Time (steps of {out['dt']} ms)")
-    ax.set_xlim(0, out["duration"])
-    ax.set_title("Obtained (colour) vs. expected (grey)")
+    ax.set_yticklabels([r["label"] for r in rows])
+    ax.set_xlabel("Time (ms)")
+    ax.set_xlim(0, out["duration"] * dt)
+    ax.set_ylim(-1, len(rows))
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)
 
 
 # --------------------------------------------------------------------------
-def scaling(family: str = "counter", n_min: int = 2, n_max: int = 10,
-            simulate_runs: bool = True, params: dict | None = None) -> dict:
-    """Scaling study: resources, latency and (optionally) correctness vs n."""
-    p = _sim_defaults(params)
-    p["save"] = False
-    rows = []
-    for n in range(int(n_min), int(n_max) + 1):
-        sp = template_counter(n) if family == "counter" else template_sequence(sequence_for_n(n))
-        c = summary(sp)
-        row = dict(n=n, name=sp["name"], states=c["states"], transitions=c["transitions"],
-                   neurons=c["neurons"], synapses=c["synapses"],
-                   excitatory=c["excitatory"], inhibitory=c["inhibitory"],
-                   output_latency=c["output_latency"], state_latency=c["state_latency"],
-                   min_event_gap=c["min_event_gap"])
-        if simulate_runs:
-            r = run(sp, p)
-            m = r["metrics"]
-            row.update(state_agreement=m["state_agreement"], tp=m["tp"], fp=m["fp"],
-                       fn=m["fn"], synaptic_events_per_event=m["synaptic_events_per_event"],
-                       wall_time_s=m["wall_time_s"])
-        rows.append(row)
-    return dict(ok=True, family=family, rows=rows)
 
 
 # --------------------------------------------------------------------------
@@ -270,6 +266,7 @@ def export_script(spec: dict, params: dict | None = None) -> dict:
         dt=float(p["dt"]), fsm_json=json.dumps(s, ensure_ascii=False),
         net_json=json.dumps(d, ensure_ascii=False), trains_json=json.dumps(inp["trains"]),
         expected=ref["detections"], out_lat=OUTPUT_LATENCY, duration=last + 30,
-        weights=p["weights"], nparams=p["neuron_params"], runner_src=runner_src,
+        weights=p["weights"] or pynn_runner.DEFAULT_WEIGHTS,
+        nparams=p["neuron_params"] or pynn_runner.DEFAULT_NEURON_PARAMS, runner_src=runner_src,
         backend=backend)
     return dict(ok=True, filename=filename, text=text)

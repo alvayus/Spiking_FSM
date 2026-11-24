@@ -22,7 +22,6 @@
     <button class="tab active" data-tab="design" role="tab"><span class="num">1</span>Design</button>
     <button class="tab" data-tab="network" role="tab"><span class="num">2</span>Network</button>
     <button class="tab" data-tab="simulate" role="tab"><span class="num">3</span>Simulate</button>
-    <button class="tab" data-tab="scaling" role="tab"><span class="num">4</span>Scaling</button>
   </nav>
   <div class="actions">
     <button id="btnNew" class="btn" title="Start an empty machine">New</button>
@@ -144,43 +143,36 @@
       <div class="card">
         <h3>Simulator</h3>
         <div id="backendList" class="radio-list"></div>
-        <label class="field" id="dtField">Simulation time step
-          <select id="dt"><option value="1">1 ms</option><option value="0.1">0.1 ms</option></select>
-        </label>
       </div>
       <div class="card">
         <h3>Input spikes</h3>
         <div class="seg" id="modeSeg">
-          <button data-mode="planted" class="active">Random + patterns</button>
-          <button data-mode="random">Random</button>
+          <button data-mode="random" class="active">Random</button>
+          <button data-mode="mixed">Random + manual</button>
           <button data-mode="manual">Manual</button>
         </div>
         <div id="randomFields">
-          <label class="field">Number of events <input id="nEvents" type="number" min="1" value="60"></label>
+          <p class="note">The inputs are generated as a sequence of <b>input events</b>: time steps in which one or more inputs spike at the same time. The machine is only evaluated at these steps. A new random sequence is generated on every run.</p>
+          <label class="field">Number of input events <input id="nEvents" type="number" min="1" value="60"></label>
           <div class="row2">
-            <label class="field">Minimum interval <span class="unit">steps</span><input id="minGap" type="number" min="5" value="5"></label>
-            <label class="field">Maximum interval <span class="unit">steps</span><input id="maxGap" type="number" min="5" value="15"></label>
+            <label class="field">Min. spacing <span class="unit">steps</span><input id="minGap" type="number" min="5" value="5"></label>
+            <label class="field">Max. spacing <span class="unit">steps</span><input id="maxGap" type="number" min="5" value="15"></label>
           </div>
+          <p class="note">Spacing between consecutive events, chosen at random in this range. At least <b id="gapNote">5</b> steps, the time a transition needs to complete.<span id="gapMs"></span></p>
           <label class="field">Probability that each input spikes in an event
             <div class="slider"><input id="pInput" type="range" min="0.05" max="1" step="0.05" value="0.4"><output id="pInputOut">0.40</output></div>
           </label>
-          <label class="field" id="plantedField">Target patterns inserted <input id="planted" type="number" min="0" value="3"></label>
-          <label class="field">Random seed <input id="seed" type="number" value="1"></label>
-          <p class="note">An <b>event</b> is a time step in which one or more inputs spike. Events must be at least <b id="gapNote">5</b> steps apart, the latency of a transition.</p>
         </div>
         <div id="manualFields" hidden>
-          <p class="note">Type the spike times of each input in milliseconds, separated by commas.</p>
+          <p class="note" id="manualNote">Type the spike times of each input in milliseconds, separated by commas.</p>
           <div id="manualList"></div>
+          <div id="manualCheck"></div>
         </div>
       </div>
       <details class="card">
         <summary>Advanced parameters</summary>
-        <div class="row2">
-          <label class="field">Excitatory weight <span class="unit">nA</span><input id="wExc" type="number" step="0.01"></label>
-          <label class="field">Inhibitory weight <span class="unit">nA</span><input id="wInh" type="number" step="0.01"></label>
-        </div>
-        <div id="neuronParams" class="params"></div>
-        <button id="btnResetParams" class="btn small">Restore Table 1 values</button>
+        <label class="field">Simulation time step <span class="unit">ms</span><input id="dt" type="number" min="0.01" step="0.1" value="1"></label>
+        <p class="note">Duration of one step <i>t</i>: synaptic delays and input spikes are multiples of it. The Ideal simulator accepts any value. SpiNNaker accepts any whole number of microseconds; below 1 ms it runs slower than real time.</p>
       </details>
       <div class="sticky-actions">
         <button id="btnSimulate" class="btn primary big">▶ Simulate</button>
@@ -193,13 +185,13 @@
         <p>Choose the simulator and how the input spikes are generated, then press <b>Simulate</b>. The network is built from spiking NOT/AND/OR gates and latches, simulated, and automatically compared with a reference automaton.</p>
       </div>
       <div id="simOut" hidden>
-        <div class="metrics" id="metrics"></div>
         <div id="simMessages"></div>
+        <div id="simDiffs"></div>
         <div class="card">
           <div class="raster-head">
             <h3>Network activity</h3>
             <div class="raster-ctrl">
-              <label class="chk"><input type="checkbox" id="showExpected" checked> Show expected</label>
+              <label class="chk" id="showExpectedField"><input type="checkbox" id="showExpected" checked> Show expected</label>
               <label class="chk"><input type="checkbox" id="showAll"> All neurons</label>
               <label class="zoom">Zoom <input type="range" id="zoom" min="1" max="20" value="1"></label>
             </div>
@@ -208,7 +200,8 @@
           <div class="legend small">
             <span><i class="lg bar inp"></i>Inputs</span><span><i class="lg bar op"></i>OP</span>
             <span><i class="lg bar st"></i>States</span><span><i class="lg bar out"></i>Output</span>
-            <span><i class="lg bar exp"></i>Expected (reference)</span><span><i class="lg bar err"></i>Mismatch</span>
+            <span id="legendExpected"><i class="lg bar exp"></i>Expected (reference)</span>
+            <span class="lg-diff"><i class="lg bar extra"></i>Extra spike</span><span class="lg-diff"><i class="lg bar miss"></i>Missing spike</span>
           </div>
         </div>
         <details class="card">
@@ -220,41 +213,6 @@
     </div>
   </section>
 
-  <!-- ======================= SCALING ======================= -->
-  <section id="tab-scaling" class="tabpane">
-    <aside class="panel left">
-      <div class="card">
-        <h3>Scaling study</h3>
-        <p class="note">Automatically generates a family of machines for several sizes n, builds each network and, optionally, simulates and validates it.</p>
-        <label class="field">Family
-          <select id="family">
-            <option value="counter">n-state cyclic counter</option>
-            <option value="sequence">Detector of a sequence of n events</option>
-          </select>
-        </label>
-        <div class="row2">
-          <label class="field">n from <input id="nMin" type="number" min="2" value="2"></label>
-          <label class="field">n to <input id="nMax" type="number" min="2" value="10"></label>
-        </div>
-        <label class="chk"><input type="checkbox" id="scaleSim" checked> Simulate and validate each size</label>
-        <p class="note">Uses the simulator and input settings of the <b>Simulate</b> tab.</p>
-        <div class="sticky-actions">
-          <button id="btnScaling" class="btn primary big">▶ Run study</button>
-          <button id="btnScalingCsv" class="btn" disabled>Download CSV</button>
-        </div>
-      </div>
-    </aside>
-    <div class="results">
-      <div class="empty-state" id="scaleEmpty">
-        <h2>How does the network grow with the size of the machine?</h2>
-        <p>The study measures neurons, synapses, latency and correctness for each n.</p>
-      </div>
-      <div id="scaleOut" hidden>
-        <div class="card"><h3>Resources vs. n</h3><svg id="scaleChart" class="chart"></svg></div>
-        <div class="card"><h3>Results</h3><div id="scaleTable"></div></div>
-      </div>
-    </div>
-  </section>
 </main>
 
 <div class="modal" id="codeModal" hidden>

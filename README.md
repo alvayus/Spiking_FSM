@@ -9,7 +9,7 @@ This repository has the code for implementing finite state machines (FSMs) as sp
 
 ## Spiking FSM builder
 
-Draw a state machine and write its transition conditions with Boolean operators. The application builds the corresponding SNN, simulates it with PyNN (SpiNNaker, NEST or Brian 2) or with a built-in ideal simulator, and validates it against a reference automaton.
+Draw a state machine and write its transition conditions with Boolean operators. The application builds the corresponding SNN, simulates it on SpiNNaker (PyNN) or with a built-in ideal simulator, and validates it against a reference automaton.
 
 ### Launching the web application
 
@@ -29,9 +29,17 @@ Optional dependencies (see [`requirements-optional.txt`](fsm_snn_app/requirement
 
 | To… | Install |
 | --- | --- |
-| Simulate on SpiNNaker | `sPyNNaker` and `PyNN` (with the usual `.spynnaker.cfg` pointing to the board) |
-| Simulate with NEST or Brian 2 | `PyNN` + `nest` or `brian2` |
+| Simulate on SpiNNaker | `sPyNNaker` and `PyNN` (with the usual `.spynnaker.cfg` pointing to the board). The file pins the versions used for the experiments of the paper (Python 3.10, sPyNNaker 7.3.0, PyNN 0.12.4) |
 | Save the `raster.png` plot with the results | `matplotlib` |
+
+SpiNNaker is only offered when the application runs with a Python that has sPyNNaker installed. For example, with a virtual environment at the root of the repository:
+
+```bash
+py -3.10 -m venv .venv
+.venv\Scripts\python -m pip install -r fsm_snn_app/requirements-optional.txt
+cd fsm_snn_app
+..\.venv\Scripts\python run_app.py
+```
 
 Without PyNN the application works the same with the **Ideal** simulator. The Simulate tab can also download a **stand-alone PyNN script** to run on the computer connected to the SpiNN-3 board:
 
@@ -57,14 +65,10 @@ python run_<machine_name>.py --backend spinnaker
    - Hover over a neuron to highlight its synapses; click it to list its incoming and outgoing synapses and to see when it first spikes after an input event (e.g. *t* + 6 for a ring neuron), with that path highlighted.
    - **PyNN code** shows the network as readable PyNN code (one population per gate or latch, one projection per synapse, with comments), generated from the same netlist that is simulated, and lets you copy or download it.
 3. **Simulate.**
-   - Choose the simulator and how the input spikes are generated: random, random with inserted target patterns, or manual.
-   - Press **Simulate**. You get the state agreement with the reference, true and false positives and negatives, the latency and the synaptic events per input event.
-   - You also get the activity raster, with the expected activity in grey and mismatches in red.
+   - Choose the simulator and how the input spikes are generated: **Random** (a new random sequence of input events on every run; its seed is saved with the results), **Manual** (spike times typed by hand) or **Random + manual** (typed spikes inserted on top of a random sequence; random events closer than 5 steps to a typed one are left out).
+   - Press **Simulate**. The activity of the network is compared with a reference automaton; if they differ, the missing and extra spikes of each state are listed and highlighted in the plot (missing spikes in orange, extra spikes in red).
+   - The activity raster follows the layout of the figures of the paper (inputs at the bottom, then OP, the states and Output on top). With SpiNNaker, **Show expected** draws the activity of the reference in grey behind it.
    - Every run is saved in `results/<date>_<name>_<simulator>/`: `fsm.json`, `simulation.json` with spikes and metrics, and `raster.png`.
-4. **Scaling.**
-   - Automatically generates n-state cyclic counters or detectors of sequences of n events, for the range of n you choose.
-   - For each size it measures neurons, synapses and latency and, optionally, simulates and validates each network.
-   - Results can be exported to CSV.
 
 ### State behaviour
 
@@ -88,7 +92,7 @@ A transition condition is stored as a sum of products: each term is an AND of li
 | NOT of each source state | 1 per state | Excited by OP, inhibited by the latch ring |
 | Transition term (AND) | 1 per term | Excited by the delay neuron, inhibited by the NOT gates and by the inputs of the negated literals |
 | Latch | 3 per state | Set → N1 → ring N2 ↔ N3. N1 inhibits itself and is inhibited by N2 and N3; Reset inhibits N2 and N3 |
-| Output (internal, optional) | 1 | OR of the transitions entering states flagged as `accepting` in the JSON specification. The editor does not create it; the built-in sequence detectors of the Scaling study use it. |
+| Output (internal, optional) | 1 | OR of the transitions entering states flagged as `accepting` in the JSON specification. The editor does not create it; the built-in sequence detectors used by the tests use it. |
 
 Timing, in time steps after an input event at time step *t*:
 
@@ -108,13 +112,13 @@ Events must therefore be at least 5 steps apart. Synaptic delays are computed au
 | File | Role |
 | --- | --- |
 | `run_app.py` | Starts the local web server |
-| `fsm_snn/spec.py` | Machine format, validation, notes and the built-in machines (default machine, scaling study, tests) |
+| `fsm_snn/spec.py` | Machine format, validation, notes and the built-in machines (default machine and tests) |
 | `fsm_snn/builder.py` | Machine → netlist of neurons and synapses (the spiking gates and latches) |
 | `fsm_snn/codegen.py` | Netlist → readable PyNN code (Network tab) |
 | `fsm_snn/inputs.py`, `reference.py`, `analysis.py` | Input spike trains, reference automaton and comparison of the simulation with it |
-| `fsm_snn/backends.py`, `pynn_runner.py`, `pipeline.py` | Ideal simulator, PyNN execution and the end-to-end run, stand-alone script and scaling study |
+| `fsm_snn/backends.py`, `pynn_runner.py`, `pipeline.py` | Ideal simulator, PyNN execution and the end-to-end run and stand-alone script |
 | `fsm_snn/server.py` | HTTP API used by the web page |
-| `fsm_snn/static/` | Web page: `util.js` (helpers), `expr.js` (Boolean conditions), `viewport.js` (pan and zoom), `editor.js` (Design tab), `network.js` (Network tab), `simulate.js` (Simulate and Scaling tabs), `app.js` (start-up) |
+| `fsm_snn/static/` | Web page: `util.js` (helpers), `expr.js` (Boolean conditions), `viewport.js` (pan and zoom), `editor.js` (Design tab), `network.js` (Network tab), `simulate.js` (Simulate tab), `app.js` (start-up) |
 
 ### Validation
 
@@ -122,13 +126,14 @@ Events must therefore be at least 5 steps apart. Synaptic delays are computed au
 
 ```bash
 cd fsm_snn_app
-python tests/test_core.py        # built-in machines, random inputs and planted patterns
+python tests/test_core.py        # built-in machines with random, manual and mixed inputs
 python tests/test_pynn_path.py   # PyNN code path and exported script (with a PyNN stand-in)
 python tests/test_codegen.py     # the readable PyNN code builds exactly the simulated network
 ```
 
 ### Known limitations
 
-* **Synaptic weights.** The default weights (1.0 nA excitatory, 2.0 nA inhibitory) and the parameters of Table 1 are in [`fsm_snn/pynn_runner.py`](fsm_snn_app/fsm_snn/pynn_runner.py). They have not been copied from the experiments in `experiments/`: adjust them under *Advanced parameters* or in that file before using SpiNNaker.
+* **Synaptic weights.** The default weights (1.0 nA excitatory, 2.0 nA inhibitory) and the parameters of Table 1 are in [`fsm_snn/pynn_runner.py`](fsm_snn_app/fsm_snn/pynn_runner.py). They have not been copied from the experiments in `experiments/`: adjust them in that file before using SpiNNaker.
+* **Time step.** The Ideal simulator gives the same result for any time step (it only changes the time scale in ms). SpiNNaker accepts any whole number of microseconds; below 1 ms it runs slower than real time. Only the 1 ms step has been used in the experiments.
 * **No bypass.** The generic builder does not implement the parallel-transition mechanism of the paper's detector, which allows events 1τ apart. Correctness is guaranteed for events at least 5τ apart. The gate library is isolated in `builder.py` so it can be replaced with the exact implementation used in `experiments/`.
-* **Validation without hardware.** The PyNN code path has only been verified with a stand-in that reproduces the PyNN API. The first run on SpiNNaker or NEST should confirm a 100 % state agreement.
+* **Validation without hardware.** The PyNN code path has only been verified with a stand-in that reproduces the PyNN API. The first run on SpiNNaker should confirm a 100 % state agreement.

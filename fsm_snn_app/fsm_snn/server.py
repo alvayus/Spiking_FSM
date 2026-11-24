@@ -10,23 +10,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import __version__
 from .backends import available_backends
-from .builder import MIN_EVENT_GAP, OUTPUT_LATENCY, STATE_LATENCY, build
+from .builder import INIT_STEP, MIN_EVENT_GAP, build
 from .codegen import generate_code
-from .pipeline import RESULTS_DIR, export_script, run, scaling
-from .pynn_runner import DEFAULT_NEURON_PARAMS, DEFAULT_WEIGHTS
+from .pipeline import export_script, run
 from .spec import normalise, notes, template_simple, validate
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 
 
 def api_info(_):
-    """Simulators available, default parameters and the machine shown on first start."""
-    return dict(version=__version__, backends=available_backends(),
-                default_spec=template_simple(),
-                neuron_params=DEFAULT_NEURON_PARAMS, weights=DEFAULT_WEIGHTS,
-                timing=dict(min_event_gap=MIN_EVENT_GAP, output_latency=OUTPUT_LATENCY,
-                            state_latency=STATE_LATENCY),
-                results_dir=os.path.abspath(RESULTS_DIR))
+    """Simulators available, timing limits for the inputs and the machine shown on first start."""
+    return dict(backends=available_backends(), default_spec=template_simple(),
+                timing=dict(min_event_gap=MIN_EVENT_GAP, ready_step=INIT_STEP + 2))
 
 
 def api_check(body):
@@ -59,12 +54,6 @@ def api_script(body):
     return export_script(body.get("spec"), body.get("params"))
 
 
-def api_scaling(body):
-    return scaling(body.get("family", "counter"), int(body.get("n_min", 2)),
-                   int(body.get("n_max", 10)), bool(body.get("simulate", True)),
-                   body.get("params"))
-
-
 ROUTES = {
     ("GET", "/api/info"): api_info,
     ("POST", "/api/check"): api_check,
@@ -72,7 +61,6 @@ ROUTES = {
     ("POST", "/api/code"): api_code,
     ("POST", "/api/simulate"): api_simulate,
     ("POST", "/api/script"): api_script,
-    ("POST", "/api/scaling"): api_scaling,
 }
 
 
@@ -129,5 +117,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(host="127.0.0.1", port=8765):
+    # Import the PyNN back-ends now, on the main thread and only once, so that
+    # /api/info answers at once and any import side effects happen at start-up.
+    available_backends()
     httpd = ThreadingHTTPServer((host, port), Handler)
     return httpd

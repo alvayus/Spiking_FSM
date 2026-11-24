@@ -146,7 +146,7 @@ def generate_code(spec: dict, params: dict | None = None) -> dict:
     w("is active. Input spike times come from the settings of the Simulate tab.")
     w('"""')
     w("")
-    w("import pyNN.spiNNaker as sim      # or: import pyNN.nest as sim / import pyNN.brian2 as sim")
+    w("import pyNN.spiNNaker as sim")
     w("")
     w(f"DT = {float(p['dt'])}                         # time step (ms)")
     wts = dict(DEFAULT_WEIGHTS)

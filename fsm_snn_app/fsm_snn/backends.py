@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import functools
+import importlib
 import importlib.util
+import os
+import socket
+import subprocess
+import sys
 
 from . import pynn_runner
 from .builder import INIT_STEP, Netlist
@@ -11,24 +17,76 @@ from .pynn_runner import DEFAULT_WEIGHTS
 BACKENDS = {
     "ideal": "Ideal (built-in, no PyNN): discrete-time Boolean neurons",
     "spinnaker": "SpiNNaker (pyNN.spiNNaker / sPyNNaker)",
-    "nest": "NEST (pyNN.nest)",
-    "brian2": "Brian 2 (pyNN.brian2)",
 }
+
+
+@functools.lru_cache(maxsize=None)
+def _check_backend(key: str) -> tuple[bool, str]:
+    """Import the PyNN module of a back-end once: only a real import tells
+    whether the simulator can be used (e.g. sPyNNaker installed but broken)."""
+    mod = pynn_runner.BACKEND_MODULES[key]
+    if importlib.util.find_spec("pyNN") is None:
+        return False, f"PyNN is not installed in this Python ({sys.executable})"
+    try:
+        importlib.import_module(mod)
+        return True, ""
+    except Exception as e:                       # noqa: BLE001 - any failure means unusable
+        msg = str(e).splitlines()[0] if str(e) else type(e).__name__
+        return False, f"{mod} cannot be imported: {msg[:120]}"
+
+
+class SpiNNakerUnavailable(RuntimeError):
+    """The SpiNNaker machine configured for sPyNNaker cannot be reached."""
+
+
+def _spynnaker_machine() -> dict:
+    """[Machine] section of the user's sPyNNaker configuration (home, then cwd)."""
+    import configparser
+    cfg = configparser.ConfigParser()
+    cfg.read([os.path.expanduser("~/.spynnaker.cfg"), ".spynnaker.cfg"], encoding="utf-8")
+    sec = cfg["Machine"] if cfg.has_section("Machine") else {}
+    val = lambda k: (sec.get(k) or "").strip()
+    none = lambda v: v if v and v.lower() != "none" else ""
+    return dict(host=none(val("machineName")), spalloc=none(val("spalloc_server")),
+                spalloc_port=int(none(val("spalloc_port")) or 22244),
+                virtual=val("virtual_board").lower() == "true")
+
+
+def spinnaker_reachable(timeout_s: float = 1.0) -> tuple[bool, str]:
+    """Quick check before a SpiNNaker run, which otherwise takes about 40 s of
+    retries to fail when the board is off or not connected."""
+    m = _spynnaker_machine()
+    if m["virtual"]:
+        return True, ""
+    if m["spalloc"]:
+        try:
+            with socket.create_connection((m["spalloc"], m["spalloc_port"]), timeout=timeout_s):
+                return True, ""
+        except OSError:
+            return False, (f"Cannot reach the spalloc server {m['spalloc']}:{m['spalloc_port']} "
+                           "set in .spynnaker.cfg.")
+    if not m["host"]:
+        return False, ("No SpiNNaker machine is configured: set machineName in the [Machine] "
+                       "section of ~/.spynnaker.cfg.")
+    # SpiNNaker boards answer ICMP echo; a reply line always contains "TTL="
+    win = os.name == "nt"
+    cmd = ["ping", "-n" if win else "-c", "1", "-w" if win else "-W",
+           str(int(timeout_s * 1000)) if win else str(max(1, int(timeout_s))), m["host"]]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s + 4,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if out.returncode == 0 and "ttl=" in out.stdout.lower():
+            return True, ""
+    except (OSError, subprocess.SubprocessError):
+        return True, ""          # cannot ping from here: let sPyNNaker try
+    return False, (f"The SpiNNaker board at {m['host']} (machineName in ~/.spynnaker.cfg) does not "
+                   "answer. Check that it is switched on and connected to this computer.")
 
 
 def available_backends() -> list[dict]:
     out = []
     for key, label in BACKENDS.items():
-        if key == "ideal":
-            ok, why = True, ""
-        else:
-            mod = pynn_runner.BACKEND_MODULES[key]
-            try:
-                ok = importlib.util.find_spec("pyNN") is not None and \
-                    importlib.util.find_spec(mod) is not None
-            except (ImportError, ValueError):
-                ok = False
-            why = "" if ok else f"{mod} is not installed on this computer"
+        ok, why = (True, "") if key == "ideal" else _check_backend(key)
         out.append(dict(id=key, label=label, available=ok, reason=why))
     return out
 
@@ -82,11 +140,15 @@ def simulate_ideal(net: Netlist | dict, trains: dict, duration_steps: int | None
 
 def simulate(net: Netlist, trains: dict, backend: str = "ideal", dt: float = 1.0,
              duration_steps: int | None = None, neuron_params: dict | None = None,
-             weights: dict | None = None, seed: int | None = None) -> dict:
+             weights: dict | None = None) -> dict:
     if backend == "ideal":
         return simulate_ideal(net, trains, duration_steps, weights)
+    if backend == "spinnaker":
+        ok, why = spinnaker_reachable()
+        if not ok:
+            raise SpiNNakerUnavailable(why)
     d = net.to_dict()
     d["init_step"] = INIT_STEP
     return pynn_runner.run_pynn(d, trains, backend=backend, dt=dt,
                                 duration_steps=duration_steps,
-                                neuron_params=neuron_params, weights=weights, seed=seed)
+                                neuron_params=neuron_params, weights=weights)

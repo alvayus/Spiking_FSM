@@ -22,6 +22,10 @@
   --out: #9673a6;
   --exc: #475569;
   --inh: #b85450;
+  --extra: #e02424;
+  --extra-bg: #fde8e8;
+  --miss: #f08c00;
+  --miss-bg: #fff3e0;
   --radius: 10px;
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   font-size: 14px;
@@ -108,6 +112,7 @@ details.card[open] > summary { margin-bottom: 10px; }
 .msg.warn { background: #fdf6e3; color: #8a5a10; }
 .msg.ok { background: #e8f6ee; color: #22603f; }
 .msg.info { background: #eaf2fb; color: #24507e; }
+.tag { display: inline-block; padding: 0 6px; border-radius: 9px; background: #eaf2fb; color: #24507e; font-size: 11px; font-weight: 600; }
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; font-size: 13px; align-items: baseline; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -172,6 +177,8 @@ details.card[open] > summary { margin-bottom: 10px; }
 .lg.bar.out { background: var(--out); }
 .lg.bar.exp { width: 8px; background: #cbd5e1; }
 .lg.bar.err { background: var(--err); }
+.lg.bar.extra { background: var(--extra); }
+.lg.bar.miss { width: 5px; background: var(--miss-bg); box-shadow: inset 0 0 0 1.5px var(--miss); }
 .dot { display: inline-block; flex: none; width: 14px; height: 14px; border: 2px solid; border-radius: 50%; }
 .dot.sq { border-radius: 4px; }
 .dot.big { width: 22px; height: 22px; }
@@ -289,21 +296,20 @@ pre.code {
 .py-n { color: #b45309; }
 .py-b { color: var(--accent); }
 
-/* ---------------------------------------------------------------- simulate and scaling tabs */
+/* ---------------------------------------------------------------- simulate tab */
 .radio-list label { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; font-size: 13px; cursor: pointer; }
 .radio-list label.disabled { opacity: .5; cursor: default; }
 .radio-list small { display: block; font-size: 11px; color: var(--muted); }
 .sticky-actions { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 4px; background: var(--bg); }
 .card .sticky-actions { background: var(--panel); }
-.params { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
-.params .field { margin: 6px 0; }
-.metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 12px; }
-.metric { padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
-.metric .lbl { font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
-.metric .val { margin-top: 4px; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.metric .sub { margin-top: 2px; font-size: 11px; color: var(--muted); }
-.metric.good .val { color: var(--ok); }
-.metric.bad .val { color: var(--err); }
+/* differences with the reference: extra spikes red, missing spikes orange */
+.diff-totals { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 10px; }
+.diff-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+.diff-chip.extra { background: var(--extra-bg); color: var(--extra); }
+.diff-chip.miss { background: var(--miss-bg); color: #b35c00; }
+.diff-chip.none { background: #eef1f4; color: var(--muted); font-weight: 600; }
+.diff-tbl td.extra { color: var(--extra); }
+.diff-tbl td.miss { color: #b35c00; }
 .raster-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
 .raster-head h3 { margin: 0; }
 .raster-ctrl { display: flex; align-items: center; gap: 14px; font-size: 12px; }
@@ -318,8 +324,6 @@ table.tbl th, table.tbl td { padding: 5px 8px; border-bottom: 1px solid #eef1f4;
 table.tbl th { position: sticky; top: 0; background: #fff; font-weight: 600; color: var(--muted); }
 table.tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
 table.tbl tr.bad td { background: #fff3f3; }
-.chart { width: 100%; height: 300px; }
-.chart text { font-size: 11px; fill: #475569; }
 
 /* ---------------------------------------------------------------- overlays */
 .busy { position: fixed; inset: 0; z-index: 60; display: grid; place-content: center; justify-items: center; gap: 12px; background: rgba(255,255,255,.7); font-weight: 600; }

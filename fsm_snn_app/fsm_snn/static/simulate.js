@@ -1,10 +1,9 @@
-/* Simulate and Scaling tabs: simulation settings, results (metrics, raster,
- * per-event table), stand-alone script and the scaling study. */
+/* Simulate tab: simulation settings, results (metrics, raster, per-event
+ * table) and the stand-alone script. */
 "use strict";
 
 let lastResult = null;
-let scaleRows = null;
-let sim = { backend: "ideal", mode: "planted" };
+let sim = { backend: "ideal", mode: "random" };
 
 // ------------------------------------------------------------------ simulation settings
 function renderBackends() {
@@ -14,50 +13,81 @@ function renderBackends() {
   $("#backendList").innerHTML = info.backends.map((b) => `<label class="${b.available ? "" : "disabled"}">
     <input type="radio" name="backend" value="${b.id}" ${b.available ? "" : "disabled"} ${b.id === sim.backend ? "checked" : ""}>
     <span>${esc(b.label)}${b.available ? "" : `<small>${esc(b.reason)}</small>`}</span></label>`).join("");
-  $$("input[name=backend]").forEach((r) => r.addEventListener("change", () => { sim.backend = r.value; store("fsm_snn_backend", r.value); updateDt(); }));
-  updateDt();
+  $$("input[name=backend]").forEach((r) => r.addEventListener("change", () => { sim.backend = r.value; store("fsm_snn_backend", r.value); }));
 }
-function updateDt() { const pynn = sim.backend !== "ideal"; $("#dt").disabled = !pynn; $("#dtField").style.opacity = pynn ? 1 : .5; }
 function renderManualFields() {
   const old = {};
   $$("#manualList textarea").forEach((t) => (old[t.dataset.input] = t.value));
   const saved = load("fsm_snn_manual") || {};
   $("#manualList").innerHTML = spec.inputs.map((i) => `<label class="field">${esc(i)} <span class="unit">ms</span>
     <textarea rows="2" data-input="${esc(i)}" placeholder="e.g. 10, 25, 40">${esc(old[i] ?? saved[i] ?? "")}</textarea></label>`).join("");
+  checkTyped();
 }
-function renderParams() {
-  $("#wExc").value = info.weights.exc; $("#wInh").value = info.weights.inh;
-  const labels = { cm: "cm (nF)", tau_m: "tau_m (ms)", tau_refrac: "tau_refrac (ms)", tau_syn_E: "tau_syn_E (ms)", tau_syn_I: "tau_syn_I (ms)", v_rest: "v_rest (mV)", v_reset: "v_reset (mV)", v_thresh: "v_thresh (mV)" };
-  $("#neuronParams").innerHTML = Object.entries(info.neuron_params).map(([k, v]) =>
-    `<label class="field">${labels[k] || k}<input type="number" step="any" data-param="${k}" value="${v}"></label>`).join("");
+// ------------------------------------------------------------------ timing hints (in ms)
+const curDt = () => (parseFloat($("#dt").value) > 0 ? parseFloat($("#dt").value) : 1);
+const msText = (x) => String(+x.toFixed(3));
+// same rounding as Python's round() on the server (half to even)
+const roundSteps = (x) => { const r = Math.round(x); return Math.abs(x % 1) === 0.5 && r % 2 ? r - 1 : r; };
+
+// "5 to 15 steps" is also shown in ms for the current time step
+function updateGapMs() {
+  const dt = curDt(), lo = Math.max(5, +$("#minGap").value), hi = Math.max(lo, +$("#maxGap").value);
+  $("#gapMs").textContent = ` With a ${msText(dt)} ms step: ${msText(lo * dt)} to ${msText(hi * dt)} ms between events.`;
 }
+
+// Typed spikes are checked as they are written: the network needs the initial
+// states to be set before the first event and a minimum gap between events.
+function checkTyped() {
+  const box = $("#manualCheck");
+  if (sim.mode === "random") { box.innerHTML = ""; return; }
+  const dt = curDt(), gap = info.timing.min_event_gap, ready = info.timing.ready_step;
+  const byStep = new Map();
+  $$("#manualList textarea").forEach((t) => (t.value.match(/-?\d+(?:\.\d+)?/g) || []).forEach((v) => {
+    const ms = parseFloat(v), step = roundSteps(ms / dt);
+    if (step < 1) return;
+    if (!byStep.has(step)) byStep.set(step, []);
+    byStep.get(step).push(`${msText(ms)} ms (${t.dataset.input})`);
+  }));
+  const steps = [...byStep.keys()].sort((a, b) => a - b);
+  const what = (st) => byStep.get(st).join(" + ");
+  const issues = [];
+  for (const st of steps) if (st <= ready) issues.push(`${what(st)} comes before the initial states are set: use ${msText((ready + 1) * dt)} ms or later.`);
+  for (let k = 1; k < steps.length; k++) {
+    const a = steps[k - 1], b = steps[k];
+    if (b - a < gap) issues.push(`${what(b)} is only ${msText((b - a) * dt)} ms after ${what(a)}: they must be at least ${msText(gap * dt)} ms apart.`);
+  }
+  const shown = issues.slice(0, 6).map((m) => `<div class="msg warn">${esc(m)}</div>`).join("")
+    + (issues.length > 6 ? `<div class="msg warn">…and ${issues.length - 6} more.</div>` : "");
+  box.innerHTML = `<p class="note">With a ${msText(dt)} ms time step, typed spikes must come at ${msText((ready + 1) * dt)} ms or later and be at least ${msText(gap * dt)} ms (${gap} steps) apart. Spikes of different inputs in the same step form one event.</p>${shown}`;
+}
+
 function collectParams() {
   const manual = {};
   $$("#manualList textarea").forEach((t) => (manual[t.dataset.input] = t.value));
   store("fsm_snn_manual", manual);
-  const np = {};
-  $$("[data-param]").forEach((i) => (np[i.dataset.param] = parseFloat(i.value)));
   const p = {
-    backend: sim.backend, dt: parseFloat($("#dt").value), mode: sim.mode,
+    backend: sim.backend, dt: parseFloat($("#dt").value) > 0 ? parseFloat($("#dt").value) : 1, mode: sim.mode,
     n_events: +$("#nEvents").value, min_gap: Math.max(5, +$("#minGap").value), max_gap: Math.max(5, +$("#maxGap").value),
-    p_input: +$("#pInput").value, planted: +$("#planted").value, seed: +$("#seed").value, manual,
-    weights: { exc: parseFloat($("#wExc").value), inh: parseFloat($("#wInh").value) }, neuron_params: np,
+    p_input: +$("#pInput").value, manual,
   };
-  if (sim.backend === "ideal") p.dt = 1.0;
-  store("fsm_snn_sim", { n_events: p.n_events, min_gap: p.min_gap, max_gap: p.max_gap, p_input: p.p_input, planted: p.planted, seed: p.seed, mode: p.mode });
+  store("fsm_snn_sim", { n_events: p.n_events, min_gap: p.min_gap, max_gap: p.max_gap, p_input: p.p_input, mode: p.mode, dt: p.dt });
   return p;
 }
 function restoreSimFields() {
   const s = load("fsm_snn_sim"); if (!s) return;
   $("#nEvents").value = s.n_events; $("#minGap").value = s.min_gap; $("#maxGap").value = s.max_gap;
-  $("#pInput").value = s.p_input; $("#planted").value = s.planted; $("#seed").value = s.seed;
-  setMode(s.mode || "planted");
+  $("#pInput").value = s.p_input;
+  if (s.dt > 0) $("#dt").value = s.dt;
+  setMode(["manual", "mixed"].includes(s.mode) ? s.mode : "random");
 }
 function setMode(m) {
   sim.mode = m;
   $$("#modeSeg button").forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
-  $("#randomFields").hidden = m === "manual"; $("#manualFields").hidden = m !== "manual";
-  $("#plantedField").hidden = m !== "planted";
+  $("#randomFields").hidden = m === "manual"; $("#manualFields").hidden = m === "random";
+  $("#manualNote").innerHTML = m === "mixed"
+    ? `Spikes inserted on top of the random sequence, in milliseconds, separated by commas. They are always kept: random events closer than ${info.timing.min_event_gap} steps to one of them are left out.`
+    : "Type the spike times of each input in milliseconds, separated by commas.";
+  checkTyped();
   $("#pInputOut").textContent = fmt(+$("#pInput").value, 2);
 }
 
@@ -67,67 +97,132 @@ async function simulate() {
   busy(true, sim.backend === "ideal" ? "Simulating…" : "Simulating with PyNN (" + sim.backend + "). This may take a while…");
   try {
     const r = await api("/api/simulate", { spec, params: p });
-    if (!r.ok) { toast((r.errors || ["Simulation error"]).join(" · "), 6000); if (r.errors) showTab("design"); return; }
+    if (!r.ok) { toast((r.errors || ["Simulation error"]).join(" · "), 6000); if (r.invalid_spec) showTab("design"); return; }
     lastResult = r; renderResults();
   } catch (e) { toast("Could not reach the server: " + e.message, 6000); }
   finally { busy(false); }
 }
+// Spikes of the states (and Output) that differ from the reference automaton.
+function spikeDiffs(r) {
+  return r.rows.filter((row) => row.expected).map((row) => {
+    const exp = new Set(row.expected), got = new Set(row.spikes);
+    return { label: row.label, missing: row.expected.filter((t) => !got.has(t)), extra: row.spikes.filter((t) => !exp.has(t)) };
+  }).filter((d) => d.missing.length || d.extra.length);
+}
+// consecutive steps -> [first, last] ranges (a state that stays active spikes every step)
+function stepRanges(steps) {
+  const out = [];
+  for (const t of steps) {
+    const last = out[out.length - 1];
+    if (last && t === last[1] + 1) last[1] = t; else out.push([t, t]);
+  }
+  return out;
+}
+function rangesText(steps, dt) {
+  if (!steps.length) return "—";
+  const rs = stepRanges(steps).map(([a, b]) => (a === b ? `${msText(a * dt)}` : `${msText(a * dt)}–${msText(b * dt)}`) + " ms");
+  return esc(rs.slice(0, 4).join(", ") + (rs.length > 4 ? ` and ${rs.length - 4} more` : "")) + ` <span class="muted">(${steps.length})</span>`;
+}
+function renderDiffs(r, diffs) {
+  if (!diffs.length) { $("#simDiffs").innerHTML = ""; return; }
+  const nMiss = diffs.reduce((a, d) => a + d.missing.length, 0), nExtra = diffs.reduce((a, d) => a + d.extra.length, 0);
+  const chip = (n, cls, what) => `<span class="diff-chip ${n ? cls : "none"}">${n} ${what} spike${n === 1 ? "" : "s"}</span>`;
+  $("#simDiffs").innerHTML = `<div class="card"><h3>Differences with the reference</h3>
+    <div class="diff-totals">${chip(nMiss, "miss", "missing")}${chip(nExtra, "extra", "extra")}</div>
+    <div class="tbl-wrap"><table class="tbl diff-tbl"><thead><tr><th></th><th>Missing spikes</th><th>Extra spikes</th></tr></thead><tbody>
+    ${diffs.map((d) => `<tr><td><b>${esc(d.label)}</b></td><td class="miss">${rangesText(d.missing, r.dt)}</td><td class="extra">${rangesText(d.extra, r.dt)}</td></tr>`).join("")}
+    </tbody></table></div></div>`;
+}
+
 function renderResults() {
-  const r = lastResult, m = r.metrics, c = r.summary;
+  const r = lastResult, m = r.metrics;
   $("#simEmpty").hidden = true; $("#simOut").hidden = false;
-  const card = (lbl, val, sub, cls = "") => `<div class="metric ${cls}"><div class="lbl">${lbl}</div><div class="val">${val}</div><div class="sub">${sub}</div></div>`;
-  const good = m.state_agreement === 1 && m.fp === 0 && m.fn === 0 && m.final_state_ok !== false;
-  $("#metrics").innerHTML = [
-    card("State agreement", pct(m.state_agreement), `${m.events} events compared with the reference`, m.state_agreement === 1 ? "good" : "bad"),
-    card("Network", `${c.neurons} · ${c.synapses}`, "neurons · synapses"),
-    card("Synaptic events", fmt(m.synaptic_events_per_event, 1), "per input event (energy proxy)"),
-    card("Simulator", esc(r.backend), `${fmt(m.wall_time_s, 2)} s · offset ${m.offset} steps`),
-  ].join("");
-  const msgs = (r.warnings || []).map((w) => `<div class="msg warn">${esc(w)}</div>`);
-  msgs.unshift(good ? `<div class="msg ok">The network behaves exactly like the reference automaton.</div>`
-    : `<div class="msg err">There are mismatches with the reference automaton: check the red marks in the plot and the per-event detail.</div>`);
+  const diffs = spikeDiffs(r);
+  const good = !diffs.length && m.state_agreement === 1 && m.final_state_ok !== false;
+  renderDiffs(r, diffs);
+  $$(".lg-diff").forEach((e) => (e.hidden = !diffs.length));
+  const msgs = (r.warnings || []).map((w) => `<div class="msg warn">${esc(w)}</div>`)
+    .concat((r.notes || []).map((n) => `<div class="msg info">${esc(n)}</div>`));
+  // with the ideal simulator a match is the expected outcome: only report problems
+  if (!good) msgs.unshift(`<div class="msg err">The network does not match the reference automaton: the differences are listed below and highlighted in the plot (extra spikes in red, missing spikes in orange).</div>`);
+  else if (r.backend !== "ideal") msgs.unshift(`<div class="msg ok">The network behaves exactly like the reference automaton.</div>`);
   $("#simMessages").innerHTML = msgs.join("");
-  const rows = r.per_event.map((e) => `<tr class="${e.ok ? "" : "bad"}"><td class="num">${e.step}</td><td>${esc(e.inputs.join(", "))}</td><td>${esc(e.expected.join(", ") || "—")}</td><td>${esc(e.obtained.join(", ") || "—")}</td><td>${e.ok ? "✓" : "✗"}</td></tr>`).join("");
-  $("#eventTable").innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="num">Step</th><th>Inputs that spike</th><th>Expected states</th><th>Obtained states</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  $("#savedTo").textContent = r.saved_to ? "Results saved in " + r.saved_to : "";
+  const typed = new Set(r.mode === "mixed" ? r.manual_steps : []);    // spikes typed in "Random + manual"
+  const rows = r.per_event.map((e) => `<tr class="${e.ok ? "" : "bad"}"><td class="num">${msText(e.step * r.dt)}</td><td>${esc(e.inputs.join(", "))}${typed.has(e.step) ? ' <span class="tag">manual</span>' : ""}</td><td>${esc(e.expected.join(", ") || "—")}</td><td>${esc(e.obtained.join(", ") || "—")}</td><td>${e.ok ? "✓" : "✗"}</td></tr>`).join("");
+  $("#eventTable").innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="num">Time (ms)</th><th>Inputs that spike</th><th>Expected states</th><th>Obtained states</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  $("#savedTo").textContent = [r.mode !== "manual" ? `Random seed ${r.seed}` : "", r.saved_to ? "results saved in " + r.saved_to : ""]
+    .filter(Boolean).join(" · ").replace(/^r/, "R");
+  // the ideal simulator is the reference behaviour itself: no expected overlay
+  // (mismatches, e.g. events closer than the minimum gap, are still marked in red)
+  const ideal = r.backend === "ideal";
+  $("#showExpectedField").hidden = ideal; $("#legendExpected").hidden = ideal;
   drawRaster();
 }
 
+// Raster in the style of the paper's figures: inputs at the bottom, then OP, a
+// separator line, the states (all three latch neurons on one row) and Output on
+// top; dotted row guides, framed axes and time in ms. Same draw.io palette.
+const RASTER_COLOR = {
+  input: "#6c8ebf", init: "#666666", op: "#d79b00", state: "#82b366", latch: "#82b366",
+  output: "#9673a6", term: "#9673a6", not_input: "#b85450", not_state: "#b85450", delay: "#d6b656",
+};
+const RASTER_ORDER = ["input", "init", "op", "delay", "not_input", "not_state", "term", "latch", "state", "output"];
+const isSourceKind = (k) => k === "input" || k === "init" || k === "op";
+
 function drawRaster() {
   const r = lastResult; if (!r) return;
-  const showAll = $("#showAll").checked, showExp = $("#showExpected").checked;
-  const rows = showAll ? r.all_rows : r.rows;
-  const zoom = +$("#zoom").value;
+  const showAll = $("#showAll").checked, showExp = r.backend !== "ideal" && $("#showExpected").checked;
+  // bottom-to-top order (row 0 is drawn at the bottom)
+  const rows = showAll
+    ? r.all_rows.map((x, i) => [x, i]).sort((a, b) => RASTER_ORDER.indexOf(a[0].kind) - RASTER_ORDER.indexOf(b[0].kind) || a[1] - b[1]).map((x) => x[0])
+    : r.rows;
+  const n = rows.length, zoom = +$("#zoom").value;
   const avail = Math.max(600, $("#rasterScroll").clientWidth - 2);
-  const left = 120, rowH = showAll ? 16 : 24, top = 10;
-  const T = r.duration;
-  const W = Math.max(avail, (avail - left) * zoom + left);
-  const sx = (W - left - 14) / T;
-  const H = top + rows.length * rowH + 30;
-  const color = { input: "var(--inp)", op: "var(--op)", state: "var(--st)", output: "var(--out)", latch: "var(--st)", term: "#9673a6", not_input: "var(--inh)", not_state: "var(--inh)", delay: "#d6b656" };   // paper colours
-  const bw = Math.max(1.5, Math.min(sx * 0.8, 4));
+  const left = showAll ? 130 : 70, right = 16, top = 14, rowH = showAll ? 14 : 26;
+  const plotH = (n + 1) * rowH;                       // half a row of margin above and below
+  const T = r.duration, dt = r.dt;
+  const W = Math.max(avail, (avail - left - right) * zoom + left + right);
+  const sx = (W - left - right) / T;
+  const X = (t) => left + t * sx;
+  const Y = (k) => top + plotH - (k + 1) * rowH;      // centre of row k
+  const tick = Math.max(0.5, rowH * 0.32);           // half height of a spike mark
+  const bw = Math.max(1.6, Math.min(sx * 0.6, 3));
   const parts = [];
-  // event guide lines
-  for (const [e] of r.events) parts.push(`<line x1="${left + e * sx}" x2="${left + e * sx}" y1="${top}" y2="${top + rows.length * rowH}" stroke="#e5ebf2"/>`);
+  // dotted row guides and the separator between the inputs/OP and the network state
+  rows.forEach((row, k) => parts.push(`<line x1="${left}" x2="${W - right}" y1="${Y(k)}" y2="${Y(k)}" stroke="#c3b5d6" stroke-width=".8" stroke-dasharray="1.5 2.5"/>`));
+  for (let k = 1; k < n; k++) {
+    const split = showAll ? rows[k].kind !== rows[k - 1].kind && !(isSourceKind(rows[k].kind) && isSourceKind(rows[k - 1].kind))
+                          : isSourceKind(rows[k - 1].kind) && !isSourceKind(rows[k].kind);
+    if (split) parts.push(`<line x1="${left}" x2="${W - right}" y1="${Y(k) + rowH / 2}" y2="${Y(k) + rowH / 2}" stroke="#4b3f72" stroke-width=".6"/>`);
+  }
   rows.forEach((row, k) => {
-    const y = top + k * rowH;
-    parts.push(`<rect x="0" y="${y}" width="${W}" height="${rowH}" fill="${k % 2 ? "#fafbfc" : "#fff"}" opacity=".6"/>`);
-    parts.push(`<text x="${left - 8}" y="${y + rowH / 2 + 4}" text-anchor="end">${esc(row.label.length > 18 ? row.label.slice(0, 17) + "…" : row.label)}</text>`);
+    const y = Y(k), col = RASTER_COLOR[row.kind] || "#334155";
+    parts.push(`<line x1="${left - 6}" x2="${left}" y1="${y}" y2="${y}" stroke="#111" stroke-width="1.4"/>`);
+    parts.push(`<text x="${left - 10}" y="${y + 4}" text-anchor="end">${esc(row.label.length > 20 ? row.label.slice(0, 19) + "…" : row.label)}</text>`);
     const exp = new Set(row.expected || []), got = new Set(row.spikes);
-    if (showExp && row.expected) for (const t of row.expected) parts.push(`<rect x="${left + t * sx - bw}" y="${y + 3}" width="${2 * bw}" height="${rowH - 6}" fill="#e2e8f0"/>`);
+    const extra = row.expected ? row.spikes.filter((t) => !exp.has(t)) : [];
+    const missing = row.expected ? row.expected.filter((t) => !got.has(t)) : [];
+    // tinted band behind every stretch of differences, so they stand out when zoomed out
+    const band = (steps, fill) => stepRanges(steps).forEach(([a, b]) => parts.push(
+      `<rect x="${X(a) - Math.max(3, bw)}" y="${y - rowH / 2 + 1}" width="${X(b) - X(a) + 2 * Math.max(3, bw)}" height="${rowH - 2}" fill="${fill}"/>`));
+    band(missing, "var(--miss-bg)"); band(extra, "var(--extra-bg)");
+    if (showExp && row.expected) for (const t of row.expected) parts.push(`<rect x="${X(t) - bw * 1.4}" y="${y - tick - 2}" width="${bw * 2.8}" height="${2 * tick + 4}" fill="#e2e8f0"/>`);
     for (const t of row.spikes) {
       const bad = row.expected && !exp.has(t);
-      parts.push(`<rect x="${left + t * sx - bw / 2}" y="${y + 5}" width="${bw}" height="${rowH - 10}" fill="${bad ? "var(--err)" : color[row.kind] || "#334155"}"/>`);
+      parts.push(`<rect x="${X(t) - bw / 2}" y="${y - tick}" width="${bw}" height="${2 * tick}" fill="${bad ? "var(--extra)" : col}"><title>${esc(row.label)}: ${fmt(t * dt, 1)} ms${bad ? " (extra spike)" : ""}</title></rect>`);
     }
-    if (row.expected) for (const t of row.expected) if (!got.has(t)) parts.push(`<rect x="${left + t * sx - bw / 2}" y="${y + rowH - 6}" width="${bw}" height="4" fill="var(--err)"/>`);
+    for (const t of missing) parts.push(`<rect x="${X(t) - bw / 2 - .75}" y="${y - tick}" width="${bw + 1.5}" height="${2 * tick}" fill="none" stroke="var(--miss)" stroke-width="1.5"><title>${esc(row.label)}: ${fmt(t * dt, 1)} ms (missing spike)</title></rect>`);
   });
-  // time axis
-  const yA = top + rows.length * rowH;
-  const stepTick = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find((s) => s * sx >= 60) || 10000;
-  parts.push(`<line x1="${left}" x2="${W - 10}" y1="${yA}" y2="${yA}" stroke="#94a3b8"/>`);
-  for (let t = 0; t <= T; t += stepTick) parts.push(`<line x1="${left + t * sx}" x2="${left + t * sx}" y1="${yA}" y2="${yA + 4}" stroke="#94a3b8"/><text x="${left + t * sx}" y="${yA + 16}" text-anchor="middle">${t}</text>`);
-  parts.push(`<text x="${W - 12}" y="${yA + 28}" text-anchor="end">time (steps of ${fmt(r.dt, 1)} ms)</text>`);
-  const s = $("#raster"); s.setAttribute("width", W); s.setAttribute("height", H + 12); s.innerHTML = parts.join("");
+  // frame and time axis (ms)
+  const yA = top + plotH;
+  parts.push(`<rect x="${left}" y="${top}" width="${W - left - right}" height="${plotH}" fill="none" stroke="#111" stroke-width="1.4"/>`);
+  const msTick = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].find((s) => (s / dt) * sx >= 70) || 20000;
+  for (let ms = 0; ms <= T * dt + 1e-9; ms += msTick) {
+    const x = X(ms / dt);
+    parts.push(`<line x1="${x}" x2="${x}" y1="${yA}" y2="${yA + 5}" stroke="#111" stroke-width="1.4"/><text x="${x}" y="${yA + 18}" text-anchor="middle">${+ms.toFixed(2)}</text>`);
+  }
+  parts.push(`<text x="${(left + W - right) / 2}" y="${yA + 36}" text-anchor="middle">Time (ms)</text>`);
+  const s = $("#raster"); s.setAttribute("width", W); s.setAttribute("height", yA + 46); s.innerHTML = parts.join("");
 }
 
 async function downloadScript() {
@@ -135,56 +230,4 @@ async function downloadScript() {
   if (!r.ok) return toast((r.errors || ["Error"]).join(" · "), 5000);
   download(r.filename, r.text, "text/x-python");
   toast("Script downloaded: run it with \"python " + r.filename + " --backend spinnaker\"", 5000);
-}
-
-// ------------------------------------------------------------------ scaling
-async function runScaling() {
-  const body = { family: $("#family").value, n_min: +$("#nMin").value, n_max: +$("#nMax").value, simulate: $("#scaleSim").checked, params: collectParams() };
-  if (body.n_max < body.n_min) return toast("\"n to\" must be greater than or equal to \"n from\"");
-  busy(true, "Running the scaling study…");
-  try {
-    const r = await api("/api/scaling", body);
-    if (!r.ok) return toast((r.errors || ["Error"]).join(" · "), 6000);
-    scaleRows = r.rows; renderScaling(body.simulate);
-  } finally { busy(false); }
-}
-function renderScaling(simulated) {
-  $("#scaleEmpty").hidden = true; $("#scaleOut").hidden = false; $("#btnScalingCsv").disabled = false;
-  const cols = [["n", "n"], ["states", "States"], ["transitions", "Transitions"], ["neurons", "Neurons"], ["synapses", "Synapses"], ["output_latency", "Output latency (steps)"], ["min_event_gap", "Min. interval (steps)"]];
-  if (simulated) cols.push(["state_agreement", "Agreement"], ["tp", "TP"], ["fp", "FP"], ["fn", "FN"], ["synaptic_events_per_event", "Syn. events/event"]);
-  const head = cols.map(([, l]) => `<th class="num">${l}</th>`).join("");
-  const body = scaleRows.map((r) => `<tr class="${simulated && (r.state_agreement !== 1 || r.fp || r.fn) ? "bad" : ""}">${cols.map(([k]) => `<td class="num">${k === "state_agreement" ? pct(r[k]) : k === "synaptic_events_per_event" ? fmt(r[k], 1) : r[k]}</td>`).join("")}</tr>`).join("");
-  $("#scaleTable").innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
-    <p class="note">${slopeText()}</p>`;
-  drawScaleChart();
-}
-function slopeText() {
-  if (scaleRows.length < 2) return "";
-  const a = scaleRows[0], b = scaleRows[scaleRows.length - 1], dn = b.n - a.n;
-  return `Average growth: ${fmt((b.neurons - a.neurons) / dn, 1)} neurons and ${fmt((b.synapses - a.synapses) / dn, 1)} synapses per added state; latency does not depend on n.`;
-}
-function drawScaleChart() {
-  const s = $("#scaleChart"); const W = s.clientWidth || 700, H = 300, L = 54, B = 40, Tp = 16, Rt = 120;
-  const xs = scaleRows.map((r) => r.n), ymax = Math.max(...scaleRows.map((r) => r.synapses)) * 1.08;
-  const x = (n) => L + (n - xs[0]) / Math.max(1, xs[xs.length - 1] - xs[0]) * (W - L - Rt);
-  const y = (v) => H - B - v / ymax * (H - B - Tp);
-  const parts = [];
-  const tick = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find((t) => ymax / t <= 6) || 2000;
-  for (let v = 0; v <= ymax; v += tick) parts.push(`<line x1="${L}" x2="${W - Rt}" y1="${y(v)}" y2="${y(v)}" stroke="#eef1f4"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`);
-  for (const n of xs) parts.push(`<text x="${x(n)}" y="${H - B + 16}" text-anchor="middle">${n}</text>`);
-  parts.push(`<text x="${(L + W - Rt) / 2}" y="${H - 6}" text-anchor="middle">n (machine size)</text>`);
-  const series = [["synapses", "Synapses", "#2b6cb0"], ["neurons", "Neurons", "#3c9a5f"]];
-  for (const [k, lbl, col] of series) {
-    const pts = scaleRows.map((r) => `${x(r.n)},${y(r[k])}`).join(" ");
-    parts.push(`<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2.5"/>`);
-    for (const r of scaleRows) parts.push(`<circle cx="${x(r.n)}" cy="${y(r[k])}" r="3.5" fill="${col}"><title>${lbl}: ${r[k]} (n = ${r.n})</title></circle>`);
-    const lr = scaleRows[scaleRows.length - 1];
-    parts.push(`<text x="${x(lr.n) + 10}" y="${y(lr[k]) + 4}" fill="${col}" style="font-weight:600;fill:${col}">${lbl} (${lr[k]})</text>`);
-  }
-  s.setAttribute("viewBox", `0 0 ${W} ${H}`); s.innerHTML = parts.join("");
-}
-function scalingCsv() {
-  const keys = Object.keys(scaleRows[0]);
-  const lines = [keys.join(",")].concat(scaleRows.map((r) => keys.map((k) => JSON.stringify(r[k] ?? "")).join(",")));
-  download("scaling_" + $("#family").value + ".csv", lines.join("\n"), "text/csv");
 }

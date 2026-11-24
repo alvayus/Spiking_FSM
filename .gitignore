@@ -2,3 +2,4 @@
 /.idea/
 */reports/
 __pycache__/
+/.venv/

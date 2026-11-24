@@ -146,27 +146,28 @@ def notes(spec: dict) -> list[str]:
                     f"{'do' if len(negs) > 1 else 'does'} not spike, i.e. when "
                     f"{_join(others, 'or')} {'spike' if len(others) > 1 else 'spikes'}. "
                     "Without any input spike, no transition is evaluated.")
-    # several transitions from the same state may hold at once: all destinations activate
+    # several transitions from the same state may hold at once: all destinations activate.
+    # Only reported when a single input spike triggers both: transitions that need
+    # different inputs (e.g. A and B) would only collide if both spiked in the same step.
     for st in s["states"]:
         outs = [t for t in s["transitions"] if t["from"] == st["id"] and t["to"] in names]
         for a in range(len(outs)):
             for b in range(a + 1, len(outs)):
                 if outs[a]["to"] == outs[b]["to"]:
                     continue
-                if _can_overlap(outs[a]["options"], outs[b]["options"]):
+                shared = _shared_triggers(outs[a]["options"], outs[b]["options"], s["inputs"])
+                if shared:
                     out.append(
-                        f"From {st['name']}, the transitions to {names[outs[a]['to']]} and "
-                        f"{names[outs[b]['to']]} can hold at the same time: both states "
-                        "would become active (non-deterministic behaviour).")
+                        f"From {st['name']}, a spike of {_join(shared, 'or')} activates both "
+                        f"transitions, to {names[outs[a]['to']]} and {names[outs[b]['to']]}: "
+                        "both states would become active (non-deterministic behaviour).")
     return out
 
 
-def _can_overlap(opts_a, opts_b) -> bool:
-    for oa in opts_a:
-        for ob in opts_b:
-            if all(oa.get(i, v) == v for i, v in ob.items()):
-                return True
-    return False
+def _shared_triggers(opts_a, opts_b, inputs) -> list[str]:
+    """Inputs whose spike alone (no other input spiking) satisfies both conditions."""
+    return [x for x in inputs
+            if any(option_holds(o, {x}) for o in opts_a) and any(option_holds(o, {x}) for o in opts_b)]
 
 
 def reachable_states(spec: dict) -> set[str]:
@@ -191,14 +192,6 @@ def option_to_text(opt: dict) -> str:
         return "any event"
     return f" {AND} ".join(i if v == ON else NOT + i for i, v in opt.items())
 
-
-def transition_to_text(t: dict) -> str:
-    """Whole condition, e.g. ``(C ∧ ¬B) ∨ (D ∧ ¬B)``."""
-    opts = t["options"]
-    if len(opts) == 1:
-        return option_to_text(opts[0])
-    return f" {OR} ".join(f"({option_to_text(o)})" if len(o) > 1 else option_to_text(o)
-                            for o in opts)
 
 
 def option_holds(opt: dict, event: set[str]) -> bool:
@@ -298,9 +291,4 @@ def template_sequence(sequence: str = "ABBA") -> dict:
     return normalise(dict(name=f"Detector of sequence {seq}", inputs=["A", "B"],
                           states=states, transitions=tr))
 
-
-def sequence_for_n(n: int) -> str:
-    """Deterministic sequence of length n used by the scaling study."""
-    base = "ABBA"
-    return (base * (n // 4 + 1))[:n]
 

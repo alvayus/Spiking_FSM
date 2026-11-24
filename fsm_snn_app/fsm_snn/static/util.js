@@ -7,7 +7,6 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (x, d = 0) => (x === null || x === undefined || Number.isNaN(x)) ? "—" :
   Number(x).toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
-const pct = (x) => (x === null || x === undefined) ? "—" : fmt(100 * x, x === 1 ? 0 : 1) + " %";
 
 async function api(path, body) {
   const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };

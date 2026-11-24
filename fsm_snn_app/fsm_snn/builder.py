@@ -222,7 +222,7 @@ def build(spec: dict) -> Netlist:
 
 
 def summary(spec: dict) -> dict:
-    """Resource counts and timing figures (Simulate tab and scaling study)."""
+    """Resource counts and timing figures (Simulate tab)."""
     s = normalise(spec)
     net = build(s)
     c = net.counts()
