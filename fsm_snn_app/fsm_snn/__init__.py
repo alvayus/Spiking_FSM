@@ -1,4 +1,5 @@
-"""FSM -> SNN generator based on the spiking Boolean computing paradigm.
+"""Spiking FSM builder: finite state machines as spiking neural networks,
+based on the spiking Boolean computing paradigm.
 
 Builds spiking finite state machines from the spiking NOT/AND/OR gates and
 latches of Ayuso-Martinez et al. (Fig. 1 of the manuscript), simulates them

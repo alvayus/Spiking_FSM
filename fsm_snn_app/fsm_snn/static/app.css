@@ -57,6 +57,45 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tab.active { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 .tab.active .num { background: var(--accent); color: #fff; }
 .actions { display: flex; gap: 6px; }
+.file-name { align-self: center; max-width: 220px; margin-right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.split { position: relative; display: flex; }
+.split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split > .btn.caret { margin-left: -1px; padding-left: 7px; padding-right: 7px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; min-width: 240px; max-width: 340px; padding: 4px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 10px 30px rgba(15,23,42,.16);
+}
+.file-box { display: flex; flex-direction: column; gap: 10px; width: min(640px, 94vw); max-height: 86vh; }
+.file-box h2 { margin: 0; font-size: 17px; }
+.file-places { display: flex; flex-wrap: wrap; gap: 6px; }
+.place { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; }
+.place:hover { border-color: #b9c4d0; }
+.place.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.file-path { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: 13px; }
+.file-path .btn.icon { width: 28px; margin-right: 6px; padding: 3px 0; }
+.crumb { padding: 2px 5px; border: 0; border-radius: 5px; background: none; font: inherit; color: var(--ink); cursor: pointer; }
+.crumb:hover { background: var(--accent-soft); }
+.crumb:last-child { font-weight: 700; }
+.crumb-sep { color: var(--muted); }
+.file-list { flex: 1; min-height: 220px; max-height: 46vh; margin: 0; padding: 4px; overflow: auto; list-style: none; border: 1px solid var(--line); border-radius: 10px; outline: none; }
+.file-list:focus-visible { border-color: var(--accent); }
+.file-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; font-size: 13px; cursor: default; user-select: none; }
+.file-row:hover { background: #f3f6fa; }
+.file-row.sel { background: var(--accent-soft); }
+.file-row.dir .file-n { font-weight: 600; }
+.file-ico { flex: none; width: 18px; text-align: center; }
+.file-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-t { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.file-empty { padding: 18px 10px; font-size: 13px; color: var(--muted); text-align: center; }
+.file-foot { display: flex; justify-content: flex-end; gap: 8px; }
+.menu.left { left: 0; right: auto; }
+.menu-head { padding: 6px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); }
+.menu-empty { padding: 8px 10px 10px; font-size: 13px; color: var(--muted); }
+.menu-item { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: none; text-align: left; font: inherit; color: var(--ink); cursor: pointer; }
+.menu-item:hover { background: var(--accent-soft); }
+.menu-item b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.menu-item span { font-size: 11px; color: var(--muted); }
+.menu-item.clear { margin-top: 2px; border-top: 1px solid var(--line); border-radius: 0 0 7px 7px; font-size: 12px; color: var(--muted); }
 
 /* ---------------------------------------------------------------- buttons */
 .btn {
@@ -117,7 +156,8 @@ details.card[open] > summary { margin-bottom: 10px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
 .kv .big { font-size: 20px; font-weight: 700; }
-.kv .plus { font-size: 12px; font-weight: 600; color: var(--muted); }
+.kv.counts { align-items: center; gap: 10px 12px; }
+.kv.counts dt span { display: block; font-size: 11.5px; color: #8a96a8; }
 /* Boolean expressions: math font, slightly larger than the surrounding text */
 .expr { font-family: "Cambria Math", "STIX Two Math", "Segoe UI Symbol", serif; font-size: 1.1em; }
 
@@ -151,6 +191,7 @@ details.card[open] > summary { margin-bottom: 10px; }
   display: flex; align-items: center; gap: 8px; pointer-events: none;
 }
 .canvas-tools .btn { pointer-events: auto; box-shadow: 0 1px 4px rgba(15,23,42,.12); }
+.canvas-tools .menu { pointer-events: auto; }
 .hint {
   flex: 1; min-width: 0; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12px; color: var(--muted);
@@ -169,7 +210,7 @@ details.card[open] > summary { margin-bottom: 10px; }
 .legend.small { padding: 8px 0 0; border: 0; background: none; }
 .lg { display: inline-block; margin-right: 5px; vertical-align: -2px; }
 .lg.st { width: 13px; height: 13px; border-radius: 50%; background: var(--state-fill); border: 2px solid var(--state-stroke); }
-.lg.st.init { box-shadow: -6px 0 0 -4px var(--exc); }
+.lg-init { margin-right: 5px; vertical-align: -3px; }
 .lg.bar { width: 3px; height: 12px; }
 .lg.bar.inp { background: var(--inp); }
 .lg.bar.op { background: var(--op); }
@@ -253,6 +294,12 @@ details.card[open] > summary { margin-bottom: 10px; }
 .net .nn .nb { stroke-width: 2; }
 .net .nn .ng { font-weight: 700; text-anchor: middle; dominant-baseline: central; fill: var(--ink); pointer-events: none; }
 .net .nn .nl { font-size: 10px; text-anchor: middle; fill: #334155; pointer-events: none; }
+.net .col-head[data-lbl], .net .latch-name[data-lbl], .net .nn .nl[data-lbl] { pointer-events: auto; cursor: text; }
+.net-edit {
+  position: absolute; z-index: 5; transform: translateY(-50%); padding: 3px 6px;
+  border: 1.5px solid var(--accent); border-radius: 6px; background: #fff; box-shadow: 0 2px 10px rgba(15,23,42,.18);
+  font-family: inherit; color: var(--ink); outline: none; user-select: text; -webkit-user-select: text;
+}
 .net .nn .nl.sub { font: 10.5px "Cambria Math", "Segoe UI Symbol", serif; fill: #6b4f7a; }
 .net .nn.pinned .nb { stroke: var(--accent); stroke-width: 3.5; }
 .net .syn .line { fill: none; stroke-width: 1.3; }

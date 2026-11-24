@@ -56,13 +56,16 @@ python run_<machine_name>.py --backend spinnaker
    - The condition is also shown as a sum of products (terms joined by ∨), which can be edited input by input.
    - Mark which states are active at start. Several states may be active at the same time, for example in non-deterministic machines.
    - The **Summary** panel shows the number of states and transitions, and checks the machine live (errors, warnings and notes on how it will behave).
+   - **Open…** (Ctrl + O) shows a file dialog that browses the disk (it starts in `designs/`), and **▾** next to it reopens a recent file. **Save** (Ctrl + S) writes over the file that was opened or saved last, whose name is shown next to the buttons (with • while there are unsaved changes); **Save as…** (Ctrl + Shift + S) chooses a new file and asks before replacing an existing one. The local server reads and writes the files ([`fsm_snn/files.py`](fsm_snn_app/fsm_snn/files.py)), so this works in any browser; only folders and `.json` files are listed, and only the application's own page may use it.
    - The canvas works like draw.io: drag the background to select several states (Shift / Ctrl + click adds to the selection), Space + drag, right drag or scroll to move, Ctrl + scroll (or pinch) to zoom, arrows to nudge, Ctrl + C / X / V / D to copy, cut, paste and duplicate, and **Grid** to snap states to the grid. The full list is under *Navigation and shortcuts* in the help panel.
 2. **Network.**
    - Shows the generated network neuron by neuron and synapse by synapse, with the colours of the paper: inputs blue, OP orange, NOT gates red, delay neuron yellow, AND gates (transition terms) purple and latches green.
    - The columns follow the order in which the neurons spike after an input event, and each state has its own row with its NOT gate, the AND gates of the transitions that leave it and its latch. Synapses are drawn as orthogonal wires, each with its own port and lane so that they do not overlap. Excitatory synapses end in an arrow and inhibitory synapses in an open circle that touches the target neuron.
-   - The neuron count is shown together with the spike sources (inputs and initialisation), e.g. 29 (+4 spike sources).
+   - The panel shows the number of neurons (plus the spike sources: inputs and initialisation) and of synapses (excitatory and inhibitory).
    - **Show** filters the drawing by neuron type (spike sources, OP, delay, NOT gates, AND gates, latches) and by synapse type; its coloured checkboxes double as the legend.
    - Hover over a neuron to highlight its synapses; click it to list its incoming and outgoing synapses and to see when it first spikes after an input event (e.g. *t* + 6 for a ring neuron), with that path highlighted.
+   - Double-click any name of the diagram (column headings, state boxes, the text inside or next to a neuron) to rename it; only the names change. The names are saved with the machine (`net_labels` in the JSON file) and **Original names** restores them all.
+   - **Save image** saves the whole diagram, with the current names and the neuron types shown, as SVG (vector) or PNG, in the folder chosen in the same file dialog as the machines.
    - **PyNN code** shows the network as readable PyNN code (one population per gate or latch, one projection per synapse, with comments), generated from the same netlist that is simulated, and lets you copy or download it.
 3. **Simulate.**
    - Choose the simulator and how the input spikes are generated: **Random** (a new random sequence of input events on every run; its seed is saved with the results), **Manual** (spike times typed by hand) or **Random + manual** (typed spikes inserted on top of a random sequence; random events closer than 5 steps to a typed one are left out).
@@ -115,6 +118,7 @@ Events must therefore be at least 5 steps apart. Synaptic delays are computed au
 | `fsm_snn/spec.py` | Machine format, validation, notes and the built-in machines (default machine and tests) |
 | `fsm_snn/builder.py` | Machine → netlist of neurons and synapses (the spiking gates and latches) |
 | `fsm_snn/codegen.py` | Netlist → readable PyNN code (Network tab) |
+| `fsm_snn/files.py` | Design files on disk: folder listing, open and save (Open / Save / recent files) |
 | `fsm_snn/inputs.py`, `reference.py`, `analysis.py` | Input spike trains, reference automaton and comparison of the simulation with it |
 | `fsm_snn/backends.py`, `pynn_runner.py`, `pipeline.py` | Ideal simulator, PyNN execution and the end-to-end run and stand-alone script |
 | `fsm_snn/server.py` | HTTP API used by the web page |

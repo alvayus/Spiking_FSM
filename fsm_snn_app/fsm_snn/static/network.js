@@ -87,7 +87,7 @@ function netLayout(net) {
   const notStateOf = {};
   for (const n of all) if (n.kind === "not_state") {
     const st = spec.states.find((s) => "NOT " + s.name === n.label);
-    if (st) notStateOf[st.id] = n;
+    if (st) { notStateOf[st.id] = n; n.sid = st.id; }
   }
 
   // ---- one band per state: NOT gate, AND gates of its outgoing transitions, latch
@@ -103,7 +103,7 @@ function netLayout(net) {
     Object.assign(n2, { x: COLX.latch, y: cy - 38, major: COLX.latch });
     Object.assign(n3, { x: COLX.latch, y: cy + 38, major: COLX.latch });
     Object.assign(n1, { x: COLX.latch + LATCH_DX, y: cy, major: COLX.latch });
-    groups.push({ x0: COLX.latch - 38, y0: cy - 88, x1: COLX.latch + LATCH_DX + 62, y1: cy + 72, label: st.name, initial: st.initial });
+    groups.push({ x0: COLX.latch - 38, y0: cy - 88, x1: COLX.latch + LATCH_DX + 62, y1: cy + 72, label: st.name, initial: st.initial, sid: st.id });
     if (notStateOf[st.id]) Object.assign(notStateOf[st.id], { x: COLX.notst, y: cy });
     terms.forEach((n, k) => Object.assign(n, { x: COLX.term, y: cy + (k - (terms.length - 1) / 2) * TERM_DY }));
     y += h;
@@ -140,7 +140,7 @@ function netLayout(net) {
     ["gate", "Delay · NOT inputs", used((n) => n.kind === "delay" || n.kind === "not_input")],
     ["notst", "NOT states", used((n) => n.kind === "not_state")], ["term", "AND (terms)", used((n) => n.kind === "term")],
     ["latch", "Latches", true], ["out", "Output", used((n) => n.kind === "output")],
-  ].filter((h) => h[2]).map(([c, text]) => ({ x: COLX[c] + (c === "latch" ? LATCH_DX / 2 : 0), y: box.y0 + 14, text }));
+  ].filter((h) => h[2]).map(([c, text]) => ({ c, x: COLX[c] + (c === "latch" ? LATCH_DX / 2 : 0), y: box.y0 + 14, text }));
   return { nodes, edges, groups, headers, box };
 }
 
@@ -278,6 +278,37 @@ function netLatency(key) {
   return { steps: r.t[key], from, path };
 }
 
+// ------------------------------------------------------------------ custom names
+// Every text of the diagram can be renamed (double-click it). The names are kept in the
+// machine (spec.net_labels) under keys that survive rebuilding the network: the column,
+// the state or transition term a neuron belongs to, or its kind and label.
+function netLbl(key, def) {
+  const m = spec.net_labels;
+  return m && typeof m[key] === "string" ? m[key] : def;
+}
+function netId(n) {
+  if (n.kind === "latch") return `latch:${n.sid}:${n.j}`;
+  if (n.kind === "term") return `term:${n.tid}:${n.k}`;
+  if (n.kind === "not_state" && n.sid) return `not_state:${n.sid}`;
+  return `${n.kind}:${n.label}`;
+}
+const netGlyphOf = (n) => netLbl(netId(n) + "#g", netGlyph(n));
+const netLinesOf = (n) => netLabelLines(n).map((l, k) => netLbl(`${netId(n)}#${k}`, l));
+const netGroupDefault = (g) => g.label + (g.initial ? " · active at start" : "");
+function setNetLabel(key, def, text) {
+  const t = text.trim(), cur = netLbl(key, def);
+  if (t === cur || (!t && cur === def)) return;
+  pushUndo();
+  const m = { ...(spec.net_labels || {}) };
+  if (!t || t === def) delete m[key]; else m[key] = t;
+  if (Object.keys(m).length) spec.net_labels = m; else delete spec.net_labels;
+  changed();
+}
+function resetNetLabels() {
+  if (!spec.net_labels) return;
+  pushUndo(); delete spec.net_labels; changed(); toast("Original names restored (Ctrl+Z to undo)");
+}
+
 // ------------------------------------------------------------------ drawing
 function netGlyph(n) {
   if (n.kind === "input") return n.label.length <= 3 ? n.label : n.label.slice(0, 2) + "…";
@@ -300,20 +331,27 @@ function netLabelLines(n) {
   return [];
 }
 function netName(n) {
-  if (n.kind === "latch") return `${n.label.split(".")[0]} · N${n.j + 1} (${n.j ? "ring" : "set"})`;
-  if (n.kind === "term") { const l = netLabelLines(n); return `${l[0]} · ${l[1]}`; }
-  if (n.kind === "not_input" || n.kind === "not_state") return n.label.replace(/^NOT /, "¬");
-  return n.label;
+  if (n.kind === "latch") {
+    const g = netData && netData.groups.find((x) => x.sid === n.sid);
+    const st = g ? netLbl("group:" + g.sid, g.label) : n.label.split(".")[0];
+    return `${st} · ${netGlyphOf(n)} (${n.j ? "ring" : "set"})`;
+  }
+  const l = netLinesOf(n);
+  if (n.kind === "term") return `${l[0]} · ${l[1]}`;
+  if (l.length) return l[0];
+  return netLbl(netId(n) + "#g", n.label);
 }
 
 function drawNetwork() {
   const D = netData, show = { exc: $("#netExc").checked, inh: $("#netInh").checked };
   const visible = (n) => !netHidden.has(n.kind);
   const parts = [];
-  for (const h of D.headers) parts.push(`<text class="col-head" x="${h.x}" y="${h.y}">${esc(h.text)}</text>`);
+  const ed = (key, def) => `data-lbl="${esc(key)}" data-def="${esc(def)}"`;
+  for (const h of D.headers) parts.push(`<text class="col-head" x="${h.x}" y="${h.y}" ${ed("head:" + h.c, h.text)}>${esc(netLbl("head:" + h.c, h.text))}</text>`);
   if (!netHidden.has("latch")) for (const g of D.groups) {
+    const def = netGroupDefault(g);
     parts.push(`<rect class="latch-box" x="${g.x0}" y="${g.y0}" width="${g.x1 - g.x0}" height="${g.y1 - g.y0}" rx="10"/>
-      <text class="latch-name" x="${g.x0 + 10}" y="${g.y0 + 16}">${esc(g.label)}${g.initial ? " · active at start" : ""}</text>`);
+      <text class="latch-name" x="${g.x0 + 10}" y="${g.y0 + 16}" ${ed("group:" + g.sid, def)}>${esc(netLbl("group:" + g.sid, def))}</text>`);
   }
   const eparts = [];
   for (const e of D.edges) {
@@ -328,16 +366,19 @@ function drawNetwork() {
     const st = NET_STYLE[n.kind] || NET_STYLE.output;
     const shape = n.src ? `<rect class="nb" x="${-NR}" y="${-NR}" width="${2 * NR}" height="${2 * NR}" rx="6" fill="${st.fill}" stroke="${st.stroke}"/>`
       : `<circle class="nb" r="${NR}" fill="${st.fill}" stroke="${st.stroke}"/>`;
-    const glyph = netGlyph(n), lines = netLabelLines(n);
+    const id = netId(n), glyph = netGlyphOf(n), defs = netLabelLines(n), lines = netLinesOf(n);
+    const at = (k) => ed(`${id}#${k}`, defs[k]);
     const lbl = n.kind === "term"          // synapses arrive from the left and leave to the right: label above
-      ? lines.map((l, k) => `<text class="nl${k ? " sub" : ""}" y="${k ? -NR - 5 : -NR - 17}">${esc(l.length > 26 ? l.slice(0, 25) + "…" : l)}</text>`).join("")
+      ? lines.map((l, k) => `<text class="nl${k ? " sub" : ""}" y="${k ? -NR - 5 : -NR - 17}" ${at(k)}>${esc(l.length > 26 ? l.slice(0, 25) + "…" : l)}</text>`).join("")
       : n.kind === "not_state"             // arcs arrive above and below: label on the upper left
-      ? `<text class="nl" x="${-NR - 4}" y="${-NR + 2}" style="text-anchor:end">${esc(lines[0])}</text>`
-      : lines.map((l, k) => `<text class="nl${k ? " sub" : ""}" y="${NR + 13 + 12 * k}">${esc(l)}</text>`).join("");
+      ? `<text class="nl" x="${-NR - 4}" y="${-NR + 2}" style="text-anchor:end" ${at(0)}>${esc(lines[0])}</text>`
+      : lines.map((l, k) => `<text class="nl${k ? " sub" : ""}" y="${NR + 13 + 12 * k}" ${at(k)}>${esc(l)}</text>`).join("");
+    const gsize = glyph.length <= 2 ? 12 : glyph.length <= 4 ? 9 : 7;
     return `<g class="nn" data-n="${n.key}" transform="translate(${n.x},${n.y})"><title>${esc(netName(n) + " — " + st.name)}</title>
-      ${shape}<text class="ng" style="font-size:${glyph.length > 2 ? 9 : 12}px">${esc(glyph)}</text>${lbl}</g>`;
+      ${shape}<text class="ng" style="font-size:${gsize}px" ${ed(id + "#g", netGlyph(n))}>${esc(glyph)}</text>${lbl}</g>`;
   });
   $("#netLayer").innerHTML = parts.join("") + `<g>${eparts.join("")}</g><g>${nparts.join("")}</g>`;
+  $("#btnNetReset").hidden = !spec.net_labels;
   netHighlight();
 }
 
@@ -418,11 +459,99 @@ async function loadNetwork() {
   netData = netLayout(r.net); netKey = key;
   if (netPinned && !netData.nodes[netPinned]) netPinned = null;
   const c = r.counts;
-  $("#netCounts").innerHTML = `<dl class="kv">
-    <dt>Neurons</dt><dd class="big">${c.neurons} <span class="plus">(+${c.sources} spike source${c.sources === 1 ? "" : "s"})</span></dd>
-    <dt>Synapses <span class="unit">(${c.excitatory} exc. · ${c.inhibitory} inh.)</span></dt><dd class="big">${c.synapses}</dd></dl>`;
+  $("#netCounts").innerHTML = `<dl class="kv counts">
+    <dt>Neurons<span>plus ${c.sources} spike source${c.sources === 1 ? "" : "s"}</span></dt><dd class="big">${c.neurons}</dd>
+    <dt>Synapses<span>${c.excitatory} excitatory · ${c.inhibitory} inhibitory</span></dt><dd class="big">${c.synapses}</dd></dl>`;
   renderNetKinds(); drawNetwork(); netDetails();
   netFit();                        // the structure changed: show the whole network
+}
+
+// ------------------------------------------------------------------ rename in place
+function editNetLabel(textEl) {
+  const key = textEl.dataset.lbl, def = textEl.dataset.def;
+  const wrap = textEl.closest(".canvas-wrap"), r = textEl.getBoundingClientRect(), w = wrap.getBoundingClientRect();
+  const size = parseFloat(getComputedStyle(textEl).fontSize) * netVp.k;
+  const inp = document.createElement("input");
+  inp.className = "net-edit"; inp.value = netLbl(key, def); inp.placeholder = def;
+  inp.style.cssText = `left:${r.left - w.left - 6}px;top:${r.top - w.top + r.height / 2}px;width:${Math.max(r.width + 40, 110)}px;font-size:${Math.max(12, size)}px`;
+  wrap.appendChild(inp); inp.focus(); inp.select();
+  let done = false;
+  const finish = (save) => {
+    if (done) return; done = true;
+    const v = inp.value; inp.remove();
+    if (save) setNetLabel(key, def, v);
+  };
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
+  });
+  inp.addEventListener("blur", () => finish(true));
+}
+
+// ------------------------------------------------------------------ export the diagram
+// Self-contained SVG of the whole network (with the current names and visible neuron
+// kinds): the computed styles are written into each element, so it needs no CSS.
+const SVG_PROPS = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray", "stroke-linejoin", "stroke-linecap",
+  "font-family", "font-size", "font-weight", "font-style", "letter-spacing", "text-anchor", "dominant-baseline"];
+function netSvgText() {
+  const pinned = netPinned, hover = netHover;
+  netPinned = netHover = null; netHighlight();          // no highlighted neuron in the image
+  const live = $("#netCanvas"), clone = live.cloneNode(true);
+  const L = $$("#netLayer *", live), C = $$("#netLayer *", clone);
+  L.forEach((el, i) => {
+    const cs = getComputedStyle(el), c = C[i];
+    c.setAttribute("style", SVG_PROPS.map((k) => `${k}:${cs.getPropertyValue(k)}`).join(";"));
+    if (el.tagName === "text" && cs.textTransform === "uppercase") c.textContent = c.textContent.toUpperCase();
+    ["class", "data-n", "data-e", "data-lbl", "data-def"].forEach((a) => c.removeAttribute(a));
+  });
+  clone.querySelectorAll("title, .hit, path.hit").forEach((x) => x.remove());
+  $$("path", clone).filter((x) => x.getAttribute("stroke") === "transparent" || /stroke:\s*transparent/.test(x.getAttribute("style") || "")).forEach((x) => x.remove());
+  netPinned = pinned; netHover = hover; netHighlight();
+  const b = netData.box, W = Math.round(b.x1 - b.x0), H = Math.round(b.y1 - b.y0);
+  const layer = clone.querySelector("#netLayer");
+  layer.removeAttribute("transform"); layer.removeAttribute("style"); layer.removeAttribute("class");
+  ["class", "tabindex", "aria-label", "style"].forEach((a) => clone.removeAttribute(a));
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("viewBox", `${b.x0} ${b.y0} ${W} ${H}`);
+  clone.setAttribute("width", W); clone.setAttribute("height", H);
+  const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  Object.entries({ x: b.x0, y: b.y0, width: W, height: H, fill: "#ffffff" }).forEach(([k, v]) => bg.setAttribute(k, v));
+  clone.insertBefore(bg, layer);
+  return { text: '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone), W, H };
+}
+function netPngBase64(text, W, H, scale = 2) {
+  return new Promise((ok, ko) => {
+    const img = new Image(), url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+    img.onload = () => {
+      const cv = document.createElement("canvas");
+      cv.width = W * scale; cv.height = H * scale;
+      const ctx = cv.getContext("2d"); ctx.scale(scale, scale); ctx.drawImage(img, 0, 0, W, H);
+      URL.revokeObjectURL(url);
+      ok(cv.toDataURL("image/png").split(",")[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); ko(new Error("Could not render the PNG image")); };
+    img.src = url;
+  });
+}
+// The image is written by the local server, through the same file dialog as the machines.
+async function saveNetImage(kind) {
+  $("#netSaveMenu").hidden = true;
+  if (!netData) return toast("There is no network to save yet");
+  const { text, W, H } = netSvgText(), ext = "." + kind;
+  let body;
+  try { body = kind === "svg" ? { text } : { base64: await netPngBase64(text, W, H) }; }
+  catch (e) { return toast(e.message); }
+  const base = (filePath ? baseName(filePath).replace(/\.json$/i, "") : slug(spec.name)) + "_network";
+  fileDialog("save", {
+    ext, name: base + ext, dirKey: "fsm_snn_img_dir",
+    title: `Save the network as ${kind.toUpperCase()}`,
+    write: async (path, overwrite) => {
+      const r = await api("/api/fs/write", { path, overwrite, ...body });
+      if (r.ok) toast(`Image saved as ${r.name}`);
+      else if (!r.exists) toast("Could not save the image: " + (r.errors || ["unknown error"]).join(" "), 5000);
+      return r;
+    },
+  });
 }
 
 // ------------------------------------------------------------------ PyNN code viewer
@@ -452,7 +581,7 @@ function initNetwork() {
   const svgEl = $("#netCanvas");
   netVp = createViewport(svgEl, $("#netLayer"), {
     panOnDrag: true,
-    isBackground: (e) => !e.target.closest(".nn"),
+    isBackground: (e) => !e.target.closest(".nn, [data-lbl]"),
     onBackgroundClick: () => { if (netPinned) { netPinned = null; netHighlight(); netDetails(); } },
   });
   mountZoomBar($("#netZoom"), netVp, netFit);
@@ -473,6 +602,15 @@ function initNetwork() {
     if (netData) drawNetwork();
   });
   $("#btnCode").addEventListener("click", showCode);
+  svgEl.addEventListener("dblclick", (e) => {
+    const nn = e.target.closest(".nn");
+    const t = e.target.closest("[data-lbl]") || (nn && nn.querySelector(".ng")); if (!t) return;
+    e.preventDefault(); e.stopPropagation(); editNetLabel(t);
+  });
+  $("#btnNetReset").addEventListener("click", resetNetLabels);
+  $("#btnNetSave").addEventListener("click", () => ($("#netSaveMenu").hidden = !$("#netSaveMenu").hidden));
+  $("#netSaveMenu").addEventListener("click", (e) => { const b = e.target.closest("[data-img]"); if (b) saveNetImage(b.dataset.img); });
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#netSaveWrap")) $("#netSaveMenu").hidden = true; });
   $("#codeClose").addEventListener("click", () => ($("#codeModal").hidden = true));
   $("#codeModal").addEventListener("click", (e) => { if (e.target.id === "codeModal") $("#codeModal").hidden = true; });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#codeModal").hidden = true; });

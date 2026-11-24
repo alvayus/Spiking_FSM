@@ -8,7 +8,7 @@ import os
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import __version__
+from . import __version__, files
 from .backends import available_backends
 from .builder import INIT_STEP, MIN_EVENT_GAP, build
 from .codegen import generate_code
@@ -61,11 +61,14 @@ ROUTES = {
     ("POST", "/api/code"): api_code,
     ("POST", "/api/simulate"): api_simulate,
     ("POST", "/api/script"): api_script,
+    ("POST", "/api/fs/list"): files.api_list,
+    ("POST", "/api/fs/read"): files.api_read,
+    ("POST", "/api/fs/write"): files.api_write,
 }
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "FSM-SNN/" + __version__
+    server_version = "SpikingFSMBuilder/" + __version__
 
     def log_message(self, fmt, *args):  # quieter console
         if "/api/" in (str(args[0]) if args else ""):
@@ -81,9 +84,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _same_origin(self):
+        """The file routes only answer the application's own page, not other web sites."""
+        origin = self.headers.get("Origin")
+        return origin is None or origin.split("://", 1)[-1] == self.headers.get("Host")
+
     def _handle(self, method):
         path = self.path.split("?", 1)[0]
         fn = ROUTES.get((method, path))
+        if fn and path.startswith("/api/fs/") and not self._same_origin():
+            self._send(403, dict(ok=False, errors=["Forbidden"]))
+            return
         if fn:
             try:
                 body = {}

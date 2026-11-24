@@ -21,6 +21,7 @@ async function init() {
   spec = sanitize(spec);
   $("#gapNote").textContent = info.timing.min_event_gap;
   initCanvas(); render(); renderInspector(); runCheck(); fitIfOutside();
+  restoreFile();
   initNetwork();
   setSnap(load("fsm_snn_grid") !== false);
   $("#btnGrid").addEventListener("click", () => setSnap(!snap));
@@ -33,9 +34,13 @@ async function init() {
   if (load("fsm_snn_help_open") === false) help.open = false;
   help.addEventListener("toggle", () => store("fsm_snn_help_open", help.open));
   $("#btnUndo").addEventListener("click", undo);
-  $("#btnSave").addEventListener("click", saveSpec);
-  $("#btnOpen").addEventListener("click", () => $("#fileInput").click());
-  $("#fileInput").addEventListener("change", (e) => { if (e.target.files[0]) openSpec(e.target.files[0]); e.target.value = ""; });
+  $("#btnSave").addEventListener("click", () => saveSpec(false));
+  $("#btnSaveAs").addEventListener("click", () => saveSpec(true));
+  $("#btnOpen").addEventListener("click", openSpec);
+  $("#btnRecent").addEventListener("click", toggleRecentMenu);
+  $("#recentMenu").addEventListener("click", (e) => { const b = e.target.closest("[data-recent]"); if (b) openRecent(b.dataset.recent); });
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".split")) $("#recentMenu").hidden = true; });
+  initFileDialog();
   $("#btnAddState").addEventListener("click", () => {
     const c = designVp.center();
     addState(c.x + (Math.random() - .5) * 200, c.y + (Math.random() - .5) * 160);

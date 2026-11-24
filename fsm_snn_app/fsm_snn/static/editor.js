@@ -27,6 +27,8 @@ function newStateName() { let k = 0; while (spec.states.some((s) => s.name === "
 function changed(undoable = true) {
   render(); renderInspector(); scheduleCheck(); store("fsm_snn_spec", spec);
   if (undoable) $("#btnUndo").disabled = false;
+  if (!dirty) markDirty(true);
+  if ($("#tab-network").classList.contains("active")) loadNetwork();
 }
 // States are always held latches: drop the old per-state modes from loaded machines.
 function sanitize(s) {
@@ -323,7 +325,12 @@ function initCanvas() {
     const mod = evt.ctrlKey || evt.metaKey, key = evt.key.toLowerCase();
     const design = $("#tab-design").classList.contains("active");
     const network = $("#tab-network").classList.contains("active");
-    if (evt.key === "Escape") { pickMode = null; setHint(); if (design) select(null, null); return; }
+    if (evt.key === "Escape") { pickMode = null; setHint(); if (design) select(null, null); $("#recentMenu").hidden = true; return; }
+    if (mod && (key === "s" || key === "o")) {          // also from a field: commit its value first
+      evt.preventDefault(); document.activeElement.blur?.();
+      if (key === "s") saveSpec(evt.shiftKey); else openSpec();
+      return;
+    }
     if (inField) return;
     if (mod && key === "z") { evt.preventDefault(); undo(); return; }
     const vp = design ? designVp : network ? netVp : null;      // zoom the visible canvas
@@ -553,32 +560,184 @@ async function runCheck() {
       <dt>States</dt><dd>${spec.states.length}</dd>
       <dt>Transitions</dt><dd>${spec.transitions.length}</dd>
       <dt>Inputs</dt><dd>${spec.inputs.length}</dd></dl>`;
-  if (!(r.errors || []).length) {
-    if (!msgs.length) msgs.push(`<div class="msg ok">The machine is valid. See the full spiking neural network (SNN) that implements it in the <b>Network</b> tab.</div>`);
-    msgs.push(...notes);
-  }
+  if (!(r.errors || []).length) msgs.push(...notes);
   $("#messages").innerHTML = msgs.join("");
 }
 
 // ------------------------------------------------------------------ new, save, open
+// The local server reads and writes the design files (fsm_snn/files.py), so this works
+// in any browser: Save writes over the file that was opened or saved last, and the
+// recent files are remembered by their path. The file dialog browses the disk.
+const MAX_RECENT = 8;
+let filePath = null;            // file of the machine being edited
+let dirty = false;              // changes since the last open or save
+
+const baseName = (p) => (p ? p.split(/[\\/]/).pop() : "");
+const dirName = (p) => p.replace(/[\\/][^\\/]*$/, "");
+function markDirty(on) { dirty = on; store("fsm_snn_dirty", on); renderFileName(); }
+function renderFileName() {
+  const el = $("#fileName");
+  el.textContent = filePath ? baseName(filePath) + (dirty ? " •" : "") : "";
+  el.title = filePath ? filePath + (dirty ? " (unsaved changes)" : "") : "";
+  $("#btnSave").title = filePath ? `Save to ${baseName(filePath)} (Ctrl+S)` : "Save (Ctrl+S)";
+}
+function setFile(path) {
+  filePath = path || null; store("fsm_snn_file", filePath);
+  if (filePath) store("fsm_snn_dir", dirName(filePath));
+  markDirty(false);
+}
+function restoreFile() { filePath = load("fsm_snn_file"); dirty = !!load("fsm_snn_dirty"); renderFileName(); }
+
+// ---- recent files: [{path, time}], most recent first
+function recentList() { const l = load("fsm_snn_recent"); return Array.isArray(l) ? l : []; }
+function addRecent(path) {
+  store("fsm_snn_recent", [{ path, time: Date.now() }, ...recentList().filter((r) => r.path !== path)].slice(0, MAX_RECENT));
+}
+function toggleRecentMenu() {
+  const menu = $("#recentMenu");
+  if (!menu.hidden) { menu.hidden = true; return; }
+  const list = recentList();
+  const when = (t) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  menu.innerHTML = `<div class="menu-head">Recent files</div>` + (list.length
+    ? list.map((r, k) => `<button class="menu-item" data-recent="${k}" title="${esc(r.path)}"><b>${esc(baseName(r.path))}</b><span>${esc(dirName(r.path))} · ${when(r.time)}</span></button>`).join("")
+      + `<button class="menu-item clear" data-recent="clear">Clear the list</button>`
+    : `<div class="menu-empty">No recent files yet</div>`);
+  menu.hidden = false;
+}
+function openRecent(k) {
+  $("#recentMenu").hidden = true;
+  if (k === "clear") { store("fsm_snn_recent", []); return toast("Recent files cleared"); }
+  const r = recentList()[+k];
+  if (r) openPath(r.path);
+}
+
+// ---- file dialog: open a machine, save it as, or save an image of the network.
+// opt: {ext, title, name, dirKey (remembered folder), write(path, overwrite) -> server reply}
+const fdlg = { mode: "open", dir: null, data: null, selected: null, confirm: null, opt: {} };
+async function fileDialog(mode, opt = {}) {
+  $("#recentMenu").hidden = true;
+  opt = { ext: ".json", dirKey: "fsm_snn_dir", write: writeFile,
+    title: mode === "open" ? "Open a machine" : "Save the machine as",
+    name: filePath ? baseName(filePath) : slug(spec.name) + ".json", ...opt };
+  Object.assign(fdlg, { mode, selected: null, confirm: null, opt });
+  $("#fileDlgTitle").textContent = opt.title;
+  $("#fileDlgOk").textContent = mode === "open" ? "Open" : "Save";
+  $("#fileDlgNameRow").hidden = mode === "open";
+  $("#fileDlgName").value = opt.name;
+  $("#fileDlgMsg").hidden = true;
+  $("#fileModal").hidden = false;
+  await fileDlgGo(load(opt.dirKey) || load("fsm_snn_dir") || null);
+  (mode === "open" ? $("#fileDlgList") : $("#fileDlgName")).focus();
+  if (mode === "save") { const n = $("#fileDlgName"); n.setSelectionRange(0, n.value.length - opt.ext.length); }
+}
+function closeFileDialog() { $("#fileModal").hidden = true; }
+async function fileDlgGo(dir) {
+  if (!fdlg.data) $("#fileDlgList").innerHTML = `<li class="file-empty">Loading…</li>`;
+  const r = await api("/api/fs/list", { dir, ext: fdlg.opt.ext });
+  fdlg.data = r; fdlg.dir = r.dir; fdlg.selected = null; fdlg.confirm = null;
+  const sep = r.sep || "/", posix = r.dir.startsWith("/");
+  let acc = "";
+  const crumbs = r.dir.split(/[\\/]/).filter(Boolean).map((p, k) => {
+    acc = k === 0 ? (posix ? sep + p : p + sep) : acc.replace(/[\\/]$/, "") + sep + p;
+    return `<button class="crumb" data-dir="${esc(acc)}">${esc(p)}</button>`;
+  });
+  $("#fileDlgPath").innerHTML = `<button class="btn small icon" id="fileDlgUp" title="Parent folder" ${r.parent ? "" : "disabled"}>↑</button>` + crumbs.join(`<span class="crumb-sep">›</span>`);
+  $("#fileDlgPlaces").innerHTML = r.places.map((p) => `<button class="place${p.path === r.dir ? " active" : ""}" data-dir="${esc(p.path)}">${esc(p.name)}</button>`).join("");
+  const when = (t) => new Date(t * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  $("#fileDlgList").innerHTML = !r.ok ? `<li class="file-empty">${esc((r.errors || []).join(" "))}</li>`
+    : r.entries.length ? r.entries.map((e, k) => `<li class="file-row${e.dir ? " dir" : ""}" data-k="${k}" tabindex="-1">
+        <span class="file-ico">${e.dir ? "📁" : "📄"}</span><span class="file-n">${esc(e.name)}</span><span class="file-t">${e.dir ? "" : when(e.mtime)}</span></li>`).join("")
+    : `<li class="file-empty">No folders or ${esc(fdlg.opt.ext)} files here</li>`;
+  $("#fileDlgMsg").hidden = true;
+  fileDlgSync();
+}
+function fileDlgSync() {
+  $$("#fileDlgList .file-row").forEach((el) => el.classList.toggle("sel", +el.dataset.k === fdlg.selected));
+  const e = fdlg.selected !== null ? fdlg.data.entries[fdlg.selected] : null;
+  $("#fileDlgOk").disabled = fdlg.mode === "open" ? !e : !$("#fileDlgName").value.trim();
+  if (fdlg.mode === "open" && e && e.dir) $("#fileDlgOk").textContent = "Open folder";
+  else $("#fileDlgOk").textContent = fdlg.confirm ? "Replace" : fdlg.mode === "open" ? "Open" : "Save";
+}
+const joinPath = (dir, name) => dir.replace(/[\\/]$/, "") + (fdlg.data.sep || "/") + name;
+function fileDlgMsg(text, kind = "warn") { const m = $("#fileDlgMsg"); m.className = "msg " + kind; m.textContent = text; m.hidden = false; }
+async function fileDlgOk() {
+  const e = fdlg.selected !== null ? fdlg.data.entries[fdlg.selected] : null;
+  if (e && e.dir && (fdlg.mode === "open" || document.activeElement !== $("#fileDlgName"))) return fileDlgGo(joinPath(fdlg.dir, e.name));
+  if (fdlg.mode === "open") { if (e) { closeFileDialog(); openPath(joinPath(fdlg.dir, e.name)); } return; }
+  let name = $("#fileDlgName").value.trim();
+  if (!name) return;
+  if (/[\\/]/.test(name)) return fileDlgMsg("Write only the file name; choose the folder above.");
+  if (!name.toLowerCase().endsWith(fdlg.opt.ext)) name += fdlg.opt.ext;
+  const path = joinPath(fdlg.dir, name);
+  const r = await fdlg.opt.write(path, fdlg.confirm === path);
+  if (r.exists) { fdlg.confirm = path; fileDlgMsg(`${name} already exists. Press Replace to overwrite it.`); fileDlgSync(); return; }
+  if (r.ok) { store(fdlg.opt.dirKey, fdlg.dir); closeFileDialog(); }
+}
+function initFileDialog() {
+  $("#fileDlgCancel").addEventListener("click", closeFileDialog);
+  $("#fileModal").addEventListener("click", (e) => { if (e.target.id === "fileModal") closeFileDialog(); });
+  $("#fileDlgOk").addEventListener("click", fileDlgOk);
+  $("#fileDlgPath").addEventListener("click", (e) => {
+    if (e.target.id === "fileDlgUp" && fdlg.data.parent) return fileDlgGo(fdlg.data.parent);
+    const b = e.target.closest("[data-dir]"); if (b) fileDlgGo(b.dataset.dir);
+  });
+  $("#fileDlgPlaces").addEventListener("click", (e) => { const b = e.target.closest("[data-dir]"); if (b) fileDlgGo(b.dataset.dir); });
+  const list = $("#fileDlgList");
+  list.addEventListener("click", (e) => {
+    const row = e.target.closest(".file-row"); if (!row) return;
+    fdlg.selected = +row.dataset.k; fdlg.confirm = null; $("#fileDlgMsg").hidden = true;
+    const en = fdlg.data.entries[fdlg.selected];
+    if (fdlg.mode === "save" && !en.dir) $("#fileDlgName").value = en.name;
+    fileDlgSync();
+  });
+  list.addEventListener("dblclick", (e) => {
+    const row = e.target.closest(".file-row"); if (!row) return;
+    const en = fdlg.data.entries[+row.dataset.k];
+    if (en.dir) fileDlgGo(joinPath(fdlg.dir, en.name)); else fileDlgOk();
+  });
+  $("#fileDlgName").addEventListener("input", () => { fdlg.confirm = null; $("#fileDlgMsg").hidden = true; fdlg.selected = null; fileDlgSync(); });
+  $("#fileModal").addEventListener("keydown", (e) => {
+    e.stopPropagation();                // keep the shortcuts of the canvas out of the dialog
+    if (e.key === "Escape") closeFileDialog();
+    else if (e.key === "Enter") { e.preventDefault(); fileDlgOk(); }
+    else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && fdlg.data.entries.length && document.activeElement !== $("#fileDlgName")) {
+      e.preventDefault();
+      const n = fdlg.data.entries.length, cur = fdlg.selected ?? -1;
+      fdlg.selected = Math.max(0, Math.min(n - 1, cur + (e.key === "ArrowDown" ? 1 : -1)));
+      fileDlgSync(); $(`#fileDlgList .file-row[data-k="${fdlg.selected}"]`).scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Backspace" && document.activeElement !== $("#fileDlgName") && fdlg.data.parent) { e.preventDefault(); fileDlgGo(fdlg.data.parent); }
+  });
+}
+
+// ---- new, open, save
 function newSpec() {
   pushUndo();
   const c = designVp.center();
   spec = { name: "New design", inputs: ["A", "B"], transitions: [],
     states: [{ id: "s0", name: "S0", x: snapTo(c.x), y: snapTo(c.y), initial: true }] };
-  sel = { type: null, id: null }; showTab("design"); changed();
+  sel = { type: null, id: null }; showTab("design"); changed(); setFile(null);
   toast("New machine (Ctrl+Z to undo)");
 }
-function saveSpec() { download(slug(spec.name) + ".json", JSON.stringify(spec, null, 2)); toast("Machine saved as a JSON file"); }
-function openSpec(file) {
-  const rd = new FileReader();
-  rd.onload = () => {
-    try {
-      const s = JSON.parse(rd.result);
-      if (!Array.isArray(s.states) || !Array.isArray(s.inputs)) throw new Error("formato");
-      pushUndo(); spec = sanitize(s); sel = { type: null, id: null }; changed(); showTab("design"); fitDesign();
-      toast("Machine loaded");
-    } catch (e) { toast("The file is not a valid machine"); }
-  };
-  rd.readAsText(file);
+async function openPath(path) {
+  const r = await api("/api/fs/read", { path });
+  if (!r.ok) {
+    if (r.missing) store("fsm_snn_recent", recentList().filter((x) => x.path !== path));
+    return toast((r.errors || ["Could not open the file"]).join(" ") + (r.missing ? " It was removed from the recent files." : ""), 4500);
+  }
+  let s = null; try { s = JSON.parse(r.text); } catch (e) { /* checked below */ }
+  if (!s || !Array.isArray(s.states) || !Array.isArray(s.inputs)) return toast(`${r.name} is not a valid machine`);
+  pushUndo(); spec = sanitize(s); sel = { type: null, id: null }; changed(); showTab("design"); fitDesign();
+  setFile(r.path); addRecent(r.path);
+  toast(`${r.name} loaded`);
+}
+async function writeFile(path, overwrite) {
+  const r = await api("/api/fs/write", { path, overwrite, text: JSON.stringify(spec, null, 2) });
+  if (r.ok) { setFile(r.path); addRecent(r.path); toast(`Saved to ${r.name}`); }
+  else if (!r.exists) toast("Could not save: " + (r.errors || ["unknown error"]).join(" "), 5000);
+  return r;
+}
+function openSpec() { fileDialog("open"); }
+function saveSpec(saveAs = false) {
+  if (saveAs || !filePath) return fileDialog("save");
+  writeFile(filePath, true);
 }
