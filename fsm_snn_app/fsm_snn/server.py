@@ -44,7 +44,7 @@ def api_network(body):
 
 
 def api_energy(body):
-    """Energy per spike of every neuron (Energy tab, before a simulation)."""
+    """Energy per spike of every neuron (Power analysis tab, before a simulation)."""
     s = normalise(body.get("spec"))
     errors, _ = validate(s)
     if errors:
