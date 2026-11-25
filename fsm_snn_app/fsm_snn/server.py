@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import __version__, files
 from .backends import available_backends
-from .builder import ARCHITECTURES, DEFAULT_ARCHITECTURE, INIT_STEP, _shared_entries, build, min_event_gap
+from .builder import ARCHITECTURES, DEFAULT_ARCHITECTURE, TIMING, _modes, _transitions, build, min_event_gap
 from .codegen import generate_code
 from .energy import estimate as estimate_energy
 from .pipeline import export_script, request_cancel, run
@@ -22,7 +22,7 @@ STATIC = os.path.join(os.path.dirname(__file__), "static")
 def api_info(_):
     """Simulators available, timing limits for the inputs and the machine shown on first start."""
     return dict(backends=available_backends(), default_spec=template_simple(),
-                timing=dict(ready_step=INIT_STEP + 2),
+                timing=dict(ready_step=TIMING[DEFAULT_ARCHITECTURE]["ready_step"]),
                 architectures=ARCHITECTURES, default_architecture=DEFAULT_ARCHITECTURE)
 
 
@@ -33,7 +33,7 @@ def api_check(body):
     out = dict(errors=errors, warnings=warnings, notes=notes(s))
     if not errors:
         out["min_event_gap"] = {a: min_event_gap(dict(s, architecture=a)) for a in ARCHITECTURES}
-        shared = _shared_entries(s)
+        shared = _modes(s, _transitions(s, disjoint=True))["shared"] if min_event_gap(dict(s, architecture="parallel")) > 1 else set()
         if shared:
             names = [x["name"] for x in s["states"] if x["id"] in shared]
             out["notes"].append(

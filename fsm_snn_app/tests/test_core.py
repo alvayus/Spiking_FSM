@@ -68,10 +68,20 @@ def test_min_gap_events_back_to_back():
 def test_counts_paper_simple():
     c = summary(dict(S.template_simple(), architecture="pipelined"))
     assert c["states"] == 3 and c["neurons"] > 0
-    # 3 latches (9) + 2 input relays + OP + delay + NOT SGf + NOT SGb + 3 NOT states + 4 terms
-    # + 3 NOR (set of each state) + delay lines SGf +1 +2, SGb +1 +2, OP +2 +3
-    # + 4 "+1" of the terms (entered 3 steps before, towards the NOT gates of the states)
-    assert c["neurons"] == 9 + 2 + 1 + 1 + 2 + 3 + 4 + 3 + 6 + 4
+    # SGf and SGb together leave S2 for S0 and S1 (non-deterministic): the OR gates that set
+    # the states are inhibition-based. 3 latches (9) + 2 input neurons of the alternative OR
+    # + OP + 3 S̄ + 4 AND gates + 3 NOR gates + 4 delay neurons of the transitions
+    # + delay neurons SGf +2 +3, SGb +1 +2 +3, OP +1 +2 +3 (SGf +1 is its input neuron of OP)
+    assert c["set_mode"] == "inhibition"
+    assert c["neurons"] == 9 + 2 + 1 + 3 + 4 + 3 + 4 + 8
+    # deterministic (S2 -> S0 on SGf and not SGb): Set excited directly by the AND gates
+    det = S.template_simple()
+    det["transitions"][2]["options"] = [{"SGf": "on", "SGb": "off"}]
+    d = summary(dict(det, architecture="pipelined"))
+    assert d["set_mode"] == "direct"
+    # 9 + 2 + OP + 3 S̄ + 4 AND gates (excited by their input, no NOT gates of the inputs)
+    # + delay neurons SGf +2 +3, SGb +1 +2 +3
+    assert d["neurons"] == 9 + 2 + 1 + 3 + 4 + 5
     assert c["max_delay"] == 1
     assert summary(dict(S.template_simple(), architecture="parallel"))["neurons"] > c["neurons"]
     # SGf and SGb together leave S2 for S0 and S1: two terms can enter S1 at once, so the

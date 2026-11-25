@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .builder import T_TERM, TIMING, Netlist, architecture, min_event_gap
+from .builder import T_TERM, Netlist, architecture, min_event_gap
 from .inputs import check_gaps
 from .reference import run_reference
 from .spec import normalise
@@ -13,13 +13,13 @@ def _state_spikes(net: Netlist, spikes: dict, sid: str) -> list[int]:
     return sorted({t for n in net.states[sid] for t in spikes.get(n, [])})
 
 
-def _expected_state_steps(s, events, ref, end_step, arch="pipelined"):
+def _expected_state_steps(s, events, ref, end_step, tm):
     """Expected ring activity of each state (one spike per step while active): a ring
     stops stop_latency steps after the input spikes that leave its state and starts state_latency
     steps after those that enter it."""
-    lat = TIMING[arch]["state_latency"]
+    lat = tm["state_latency"]
     st = {x["id"]: x for x in s["states"]}
-    active_from = {sid: TIMING[arch]["ready_step"] for sid in st if st[sid]["initial"]}
+    active_from = {sid: tm["ready_step"] for sid in st if st[sid]["initial"]}
     steps = {sid: [] for sid in st}
 
     def close(sid, last):
@@ -34,7 +34,7 @@ def _expected_state_steps(s, events, ref, end_step, arch="pipelined"):
         left = {tmap[t]["from"] for t in fired if tmap[t]["to"] != tmap[t]["from"]}
         for sid in b:
             if sid not in a or sid in left:        # left (and maybe entered again)
-                close(sid, e + TIMING[arch]["stop_latency"])
+                close(sid, e + tm["stop_latency"])
                 if sid in a:
                     active_from[sid] = e + lat
         for sid in a - b:
@@ -70,7 +70,7 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     names = {x["id"]: x["name"] for x in s["states"]}
     ref = run_reference(s, events)
     warnings = []
-    arch, tm = net.architecture, net.timing
+    tm = net.timing
 
     # ---- calibrate a constant offset of the back-end (ideal: 0) ---------------
     offset = 0
@@ -134,10 +134,10 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     recall = tp / (tp + fn) if tp + fn else None
 
     ms = lambda steps: f"{steps * dt:g} ms"
-    early = [e for e, _ in events if e <= TIMING["pipelined"]["ready_step"]] if arch == "pipelined" else []
+    early = [e for e, _ in events if e <= tm["ready_step"]]
     if early:
         warnings.append(f"{len(early)} input spike time(s) arrive before the initial states are set "
-                        f"(step {TIMING['pipelined']['ready_step']}, {ms(TIMING['pipelined']['ready_step'])} with a {dt:g} ms time step); "
+                        f"(step {tm['ready_step']}, {ms(tm['ready_step'])} with a {dt:g} ms time step); "
                         "they are not evaluated correctly.")
     gap = min_event_gap(s)
     gaps = check_gaps(events, gap)
@@ -154,7 +154,7 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
         rows.append(dict(label=name, kind="input", spikes=sorted(trains.get(name, []))))
     if net.op is not None:
         rows.append(dict(label="OP", kind="op", spikes=sorted(spikes.get(net.op, []))))
-    exp_states = _expected_state_steps(s, events, ref, duration_steps, arch)
+    exp_states = _expected_state_steps(s, events, ref, duration_steps, tm)
     # fsm: the abstract machine (no delays), drawn in its own plot ("Show expected");
     # the comparison (expected=) uses the reference shifted by the network latency
     fsm = _fsm_intervals(s, [ev for ev in events if ev[0] < duration_steps], ref, duration_steps)
