@@ -118,7 +118,6 @@ def plot(path, title, trains, panels, duration):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib.patches import Patch
     inputs = list(trains)
     fig, axes = plt.subplots(len(panels), 1, figsize=(9, 1.0 + 1.25 * len(panels)), sharex=True)
     for ax, (ptitle, states, bars) in zip(axes, panels):

@@ -23,10 +23,8 @@ must not spike ("off", literal ¬X), or does not matter (input absent).
 The editor shows them with the operators ¬ (NOT), ∧ (AND) and ∨ (OR).
 
 Every state is a spiking latch: it stays active until one of its outgoing
-transitions fires. ``normalise`` therefore forces ``on_mismatch = "hold"`` and
-``always_active = False`` on every state; the builder and the reference
-automaton still understand the other modes, but the application no longer
-exposes them.
+transitions fires (machines saved by older versions may carry the per-state
+modes "on_mismatch" and "always_active"; ``normalise`` drops them).
 """
 
 from __future__ import annotations
@@ -57,9 +55,8 @@ def normalise(spec: dict) -> dict:
         st.setdefault("name", st["id"].upper())
         st["initial"] = bool(st.get("initial", False))
         st["accepting"] = bool(st.get("accepting", False))
-        # all states are held latches (see module docstring)
-        st["always_active"] = False
-        st["on_mismatch"] = "hold"
+        st.pop("always_active", None)          # old per-state modes (see module docstring)
+        st.pop("on_mismatch", None)
         states.append(st)
     s["states"] = states
     trans = []

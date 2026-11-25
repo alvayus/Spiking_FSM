@@ -1,6 +1,6 @@
-"""PyNN execution of a netlist.  Self-contained on purpose: this file's source
-is also embedded in the stand-alone scripts exported by the application, so
-it must not import anything from the fsm_snn package.
+"""PyNN execution of a netlist (SpiNNaker): neuron parameters, time step and
+time scale factor, cancellation at safe points. It imports nothing from the
+fsm_snn package, so it can be used on its own with a netlist in dict form.
 """
 
 # Neuron parameters of Table 1 of the manuscript.
@@ -109,11 +109,9 @@ def run_pynn(netlist, trains, backend="spinnaker", dt=1.0, duration_steps=None,
         pop.record("spikes")
 
         groups = {}
-        for c in conns:
-            pre, post, receptor, delay = c[:4]
-            mult = c[4] if len(c) > 4 else 1     # whole multiple of the weight
+        for pre, post, receptor, delay in conns:
             key = (pre[0], receptor)
-            weight = mult * (w["exc"] if receptor == "exc" else w["inh"])
+            weight = w["exc"] if receptor == "exc" else w["inh"]
             groups.setdefault(key, []).append((int(pre[1]), int(post), weight, float(delay) * dt))
         for (pre_kind, receptor), lst in groups.items():
             pre_pop = src_pop if pre_kind == "src" else pop

@@ -167,9 +167,9 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         return "Output", f"{pn} -> output"
 
     sections = {}
-    for pre, post, rec, delay, mult in net.conns:
+    for pre, post, rec, delay in net.conns:
         sec, com = explain(pre, post, rec)
-        sections.setdefault(sec, []).append((pre, post, rec, delay, mult, com))
+        sections.setdefault(sec, []).append((pre, post, rec, delay, com))
 
     lines = []
     w = lines.append
@@ -213,8 +213,8 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     w(f"W_EXC, W_INH = {wts['exc']}, {wts['inh']}       # synaptic weights (nA)")
     nparams = neuron_params_for(float(p["dt"]), p.get("neuron_params"))
     if float(p["dt"]) != 1.0:
-        w(f"# Table 1 (for 1 ms) with its time constants and capacitance scaled by DT, so that")
-        w(f"# the neurons behave the same, counted in time steps")
+        w("# Table 1 (for 1 ms) with its time constants and capacitance scaled by DT, so that")
+        w("# the neurons behave the same, counted in time steps")
     w("NEURON_PARAMS = {")
     for k, v in nparams.items():
         w(f"    {k!r}: {v},")
@@ -260,7 +260,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             continue
         w(f"# ------------------------------------------------------------ {sec.lower()}")
         latch_internal = {}
-        for pre, post, rec, delay, mult, com in sections[sec]:
+        for pre, post, rec, delay, com in sections[sec]:
             (pv, pi), (qv, qi) = ref(pre), where[post]
             receptor = "excitatory" if rec == "exc" else "inhibitory"
             if com == "internal connections of the latch":

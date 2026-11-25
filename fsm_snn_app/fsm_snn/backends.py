@@ -113,11 +113,9 @@ def simulate_ideal(net: Netlist | dict, trains: dict, duration_steps: int | None
     theta = 0.5 * w["exc"]
     n = len(d["neurons"])
     out_src, out_n = {}, {}
-    for c in d["conns"]:
-        pre, post, rec, delay = c[:4]
-        mult = c[4] if len(c) > 4 else 1         # whole multiple of the weight
+    for pre, post, rec, delay in d["conns"]:
         tgt = out_src if pre[0] == "src" else out_n
-        tgt.setdefault(int(pre[1]), []).append((post, rec, delay, mult))
+        tgt.setdefault(int(pre[1]), []).append((post, rec, delay))
     src_spikes = {}
     for k, src in enumerate(d["sources"]):
         steps = trains.get(src["input"], []) if src["kind"] == "input" else [INIT_STEP]
@@ -129,10 +127,10 @@ def simulate_ideal(net: Netlist | dict, trains: dict, duration_steps: int | None
     spikes = {i: [] for i in range(n)}
 
     def schedule(lst, t):
-        for post, rec, delay, mult in lst:
+        for post, rec, delay in lst:
             tab = exc if rec == "exc" else inh
             row = tab.setdefault(t + delay, {})
-            row[post] = row.get(post, 0.0) + mult * (w["exc"] if rec == "exc" else w["inh"])
+            row[post] = row.get(post, 0.0) + (w["exc"] if rec == "exc" else w["inh"])
 
     for t in range(T):             # steps 0 .. T-1, as PyNN's sim.run(T * dt) records
         if should_stop and t % 1000 == 0 and should_stop():

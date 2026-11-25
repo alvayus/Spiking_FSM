@@ -124,7 +124,7 @@ class Signal:
 class Netlist:
     neurons: list = field(default_factory=list)   # dicts: label, kind
     sources: list = field(default_factory=list)   # dicts: label, kind, input
-    conns: list = field(default_factory=list)     # (pre_ref, post, receptor, delay, weight = 1)
+    conns: list = field(default_factory=list)     # (pre_ref, post, receptor, delay); every weight is 1
     latches: dict = field(default_factory=dict)   # pipelined: state id -> (n1, n2, n3)
     states: dict = field(default_factory=dict)    # state id -> neurons whose spikes are the state
     terms: list = field(default_factory=list)     # (transition id, option idx, neuron)
@@ -150,7 +150,7 @@ class Netlist:
     def connect(self, pre_ref, post, receptor, delay):
         if delay < 1:
             raise ValueError(f"Invalid delay ({delay}) towards {self.neurons[post]['label']}")
-        self.conns.append((tuple(pre_ref), int(post), receptor, int(delay), 1))
+        self.conns.append((tuple(pre_ref), int(post), receptor, int(delay)))
 
     def connect_at(self, sig: Signal, post, receptor, arrive_at):
         self.connect(sig.ref, post, receptor, arrive_at - sig.t)
@@ -165,7 +165,7 @@ class Netlist:
 
     def to_dict(self) -> dict:
         return dict(neurons=self.neurons, sources=self.sources,
-                    conns=[[list(c[0]), c[1], c[2], c[3], c[4]] for c in self.conns],
+                    conns=[[list(c[0]), c[1], c[2], c[3]] for c in self.conns],
                     latches={k: list(v) for k, v in self.latches.items()},
                     states={k: list(v) for k, v in self.states.items()},
                     terms=[list(t) for t in self.terms],
@@ -195,7 +195,7 @@ def _unit_delays(net):
     (pre -> +1 -> +2 -> ...) and a one-step synapse from its last neuron."""
     taps = {}                                   # (pre ref, k) -> neuron that repeats pre k steps later
     incoming = {}
-    for pre, post, rec, d, w in net.conns:
+    for pre, post, rec, d in net.conns:
         incoming.setdefault(post, []).append((pre, rec, d))
     for i, n in enumerate(net.neurons):         # an existing pure relay of pre (the delay neuron: OP + 1)
         if n["kind"] == "delay" and len(incoming.get(i, [])) == 1:
@@ -213,15 +213,15 @@ def _unit_delays(net):
         if key not in taps:
             prev = tap(pre, k - 1)
             n = net.add_neuron(f"{label(pre)} +{k}", "delay_line", base=list(pre), k=k)
-            net.conns.append((tuple(prev) if isinstance(prev, tuple) else ("n", prev), n, "exc", 1, 1))
+            net.conns.append((prev, n, "exc", 1))
             taps[key] = n
         return ("n", taps[key])
 
     conns, net.conns = net.conns, []
-    for pre, post, rec, d, w in conns:
+    for pre, post, rec, d in conns:
         if d > 1:
             pre = tap(tuple(pre), d - 1)
-        net.conns.append((tuple(pre), post, rec, 1, w))
+        net.conns.append((tuple(pre), post, rec, 1))
     # the delay lines were appended to net.conns while rewriting; keep them
     seen = set()
     for c in net.conns:
@@ -488,21 +488,21 @@ def _build_parallel(s, net):
             veto(n)
             if not entering[sid]:
                 continue
-            # via 1 step: entered by the spikes at e'-1 (their terms fire at e'+2)
+            # bypass 1: set by the spikes at e'-1 (their AND gates fire at e'+2)
             n, ke = T["bypass 1"], max(kcopies[sid], 1)
             for x in raw(entering[sid]):
                 net.connect(N(x), n, "exc", 1)
             for c in range(ke):
                 net.connect(N(nospike[1][c]), n, "inh", 1)
             veto(n, ke)
-            # via 2 steps: entered at e'-2, no change at e'-1
+            # bypass 2: set by the spikes at e'-2 (set gate at e'+2), no change at e'-1
             n = T["bypass 2"]
             net.connect(N(E[sid]), n, "exc", 1)
             net.connect(N(nospike[2][0]), n, "inh", 1)
             for x in change1:
                 net.connect(N(x), n, "inh", 1)
             veto(n)
-    # set (from "entered", e+5) and reset (terms at e+4, "left" at e+5)
+    # set (from the set gate, e+5) and reset (by the leaving AND gates, e+4)
     for sid in st_by_id:
         n1, a, b = net.latches[sid]
         if sid in E:

@@ -29,16 +29,9 @@ def run_reference(spec: dict, events: list[tuple[int, set]]) -> dict:
         ev = set(ev)
         before.append(sorted(active))
         fired = [t for t in trans if t["from"] in active and transition_holds(t, ev)]
-        new = set()
-        for sid in active:
-            x = st[sid]
-            if x["always_active"]:
-                new.add(sid)
-            elif x["on_mismatch"] == "hold" and not any(
-                    t["from"] == sid and t["to"] != sid for t in fired):
-                new.add(sid)
-        for t in fired:
-            new.add(t["to"])
+        # a state stays active unless a transition leaves it; destinations become active
+        left = {t["from"] for t in fired if t["to"] != t["from"]}
+        new = (active - left) | {t["to"] for t in fired}
         if any(st[t["to"]]["accepting"] for t in fired):
             detections.append(step)
         fired_all.append([t["id"] for t in fired])

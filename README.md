@@ -138,11 +138,11 @@ Every synapse has **weight 1** (excitatory and inhibitory, as in the manuscript)
 | `run_app.py` | Starts the local web server |
 | `fsm_snn/spec.py` | Machine format, validation, notes and the built-in machines (default machine and tests) |
 | `fsm_snn/builder.py` | Machine → netlist of neurons and synapses (the spiking gates and latches) |
-| `fsm_snn/codegen.py` | Netlist → readable PyNN code (Network tab) |
+| `fsm_snn/codegen.py` | Netlist → readable PyNN code (Network tab) and stand-alone simulation script (Simulate tab) |
 | `fsm_snn/files.py` | Design files on disk: folder listing, open and save (Open / Save / recent files) |
 | `fsm_snn/web.py`, `static/web.js`, `build_web.py` | Web version: the API run in the browser by Pyodide, and the build of the static site |
 | `fsm_snn/inputs.py`, `reference.py`, `analysis.py` | Input spike trains, reference automaton and comparison of the simulation with it |
-| `fsm_snn/backends.py`, `pynn_runner.py`, `pipeline.py` | Ideal simulator, PyNN execution and the end-to-end run and stand-alone script |
+| `fsm_snn/backends.py`, `pynn_runner.py`, `pipeline.py` | Ideal simulator, PyNN execution (time step, time scale factor, cancellation) and the end-to-end run |
 | `fsm_snn/server.py` | HTTP API used by the web page |
 | `fsm_snn/static/` | Web page: `util.js` (helpers), `expr.js` (Boolean conditions), `viewport.js` (pan and zoom), `editor.js` (Design tab), `network.js` (Network tab), `simulate.js` (Simulate tab), `app.js` (start-up) |
 

@@ -33,14 +33,7 @@ def _expected_state_steps(s, events, ref, end_step, arch="pipelined"):
         b, a = set(before), set(after)
         left = {tmap[t]["from"] for t in fired if tmap[t]["to"] != tmap[t]["from"]}
         for sid in b:
-            x = st[sid]
-            if x["always_active"]:
-                continue
-            if x["on_mismatch"] == "discard":
-                close(sid, e + 2)
-                if sid in a:
-                    active_from[sid] = e + lat
-            elif sid not in a or sid in left:
+            if sid not in a or sid in left:        # left (and maybe entered again)
                 close(sid, e + 3)
                 if sid in a:
                     active_from[sid] = e + lat
