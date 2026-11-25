@@ -905,22 +905,23 @@ async function saveNetImage(kind) {
   catch (e) { return toast(e.message); }
   writeImage(kind, text, body, "_network", "the network");
 }
-// Save an exported image (SVG text, or PNG as base64 in body) next to the machine file.
-async function writeImage(kind, text, body, suffix, what) {
+// Save an exported file (SVG, Markdown or CSV text, or PNG as base64 in body) next to the machine file.
+const EXPORT_TYPES = { svg: "image/svg+xml", md: "text/markdown", csv: "text/csv" };
+async function writeImage(kind, text, body, suffix, what, noun = "Image") {
   const ext = "." + kind;
   const base = (filePath ? baseName(filePath).replace(/\.json$/i, "") : slug(spec.name)) + suffix;
-  if (WEB) {          // the browser downloads the image
-    if (kind === "svg") download(base + ext, text, "image/svg+xml");
+  if (WEB) {          // the browser downloads the file
+    if (kind !== "png") download(base + ext, text, EXPORT_TYPES[kind] || "text/plain");
     else download(base + ext, await (await fetch("data:image/png;base64," + body.base64)).blob(), "image/png");
     return toast(`Downloaded as ${base + ext}`);
   }
   fileDialog("save", {
     ext, name: base + ext, dirKey: "fsm_snn_img_dir",
-    title: `Save ${what} as ${kind.toUpperCase()}`,
+    title: `Save ${what} as ${kind === "md" ? "Markdown" : kind.toUpperCase()}`,
     write: async (path, overwrite) => {
       const r = await api("/api/fs/write", { path, overwrite, ...body });
-      if (r.ok) toast(`Image saved as ${r.name}`);
-      else if (!r.exists) toast("Could not save the image: " + (r.errors || ["unknown error"]).join(" "), 5000);
+      if (r.ok) toast(`${noun} saved as ${r.name}`);
+      else if (!r.exists) toast(`Could not save the ${noun.toLowerCase()}: ` + (r.errors || ["unknown error"]).join(" "), 5000);
       return r;
     },
   });
