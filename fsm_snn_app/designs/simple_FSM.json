@@ -41,10 +41,11 @@
       "to": "s1",
       "options": [
         {
+          "SGf": "off",
           "SGb": "on"
         }
       ],
-      "expr": "SGb"
+      "expr": "SGb ∧ ¬SGf"
     }
   ],
   "states": [
@@ -69,5 +70,6 @@
       "y": 352,
       "initial": false
     }
-  ]
+  ],
+  "architecture": "parallel"
 }
