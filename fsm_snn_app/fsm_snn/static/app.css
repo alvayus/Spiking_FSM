@@ -349,6 +349,7 @@ details.card[open] > summary { margin-bottom: 10px; }
 .syn-row { padding: 2px 4px; margin: 0 -4px; border-radius: 6px; cursor: pointer; }
 .syn-row:hover { background: var(--accent-soft); }
 .syn-row .syn-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.syn-row .syn-role { display: block; color: var(--muted); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
 .syn-list li > b { margin-left: auto; font-variant-numeric: tabular-nums; }
 .counts3 { display: grid; grid-template-columns: 1fr auto; gap: 10px 14px; align-items: center; font-size: 13px; }
 .counts3.with-sel { grid-template-columns: 1fr auto auto; }

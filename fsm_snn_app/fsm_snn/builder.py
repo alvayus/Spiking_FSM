@@ -205,6 +205,8 @@ def _unit_delays(net):
             pre, rec, d = incoming[i][0]
             if rec == "exc" and d == 1:
                 taps[(tuple(pre), 1)] = i
+                if n["kind"] == "relay":
+                    n["tap"] = 1                 # it is also the input one step later
     if len(net.input_sources) == 1 and len(incoming.get(net.op, [])) == 1:
         src = ("src", next(iter(net.input_sources.values())))
         if taps.get((src, 1)) == incoming[net.op][0][0][1]:

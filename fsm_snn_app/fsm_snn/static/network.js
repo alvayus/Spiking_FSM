@@ -151,6 +151,8 @@ function netLayout(net) {
     if (n.cond) o.cond = n.cond;
     if (n.g) o.g = n.g;
     if (n.role) o.role = n.role;
+    if (n.input) o.input = n.input;
+    if (n.tap) o.tap = n.tap;
     if (n.base) Object.assign(o, { base: n.base, k: n.k });
     if (n.tid) Object.assign(o, { tid: n.tid, from: (transById(n.tid) || {}).from, to: (transById(n.tid) || {}).to });
     if (latchOf[i]) Object.assign(o, latchOf[i]);
@@ -174,8 +176,21 @@ function netLayout(net) {
     Object.assign(n, { x: X.src + DL_DX * n.k, y: b.y, major: X.src + DL_DX * n.k });
   }
   stack(all.filter((n) => n.kind === "op"), X.op, 70);
-  // input relays: in their own column, between the rows of the inputs
+  // with a single input OP is also that input + 2: the input + 3 then follows OP
+  if (net.op != null && nodes["n" + net.op]) for (const e of net.conns) {
+    const P = e[0][0] === "n" ? nodes["n" + e[0][1]] : null, Q = nodes["n" + e[1]];
+    if (P && P.kind === "op" && Q.kind === "delay_line" && Q.base && Q.base[0] === "src") {
+      const x = (X.op + X.gate) / 2;
+      Object.assign(Q, { x, major: x });
+    }
+  }
+  // input neurons of the alternative OR gate: in their own column, between the rows of the
+  // inputs; one that is also the input one step later sits in the column "Inputs +1", on its row
   all.filter((n) => n.kind === "relay").forEach((n, k, l) => Object.assign(n, { x: X.rel, y: mid + (k - (l.length - 1) / 2) * 70 + 35 }));
+  for (const n of all) if (n.kind === "relay" && n.tap && dlK >= 1) {
+    const src = all.find((m) => m.src && m.kind === "input" && m.label === n.input);
+    if (src) Object.assign(n, { x: X.src + DL_DX, y: src.y, major: X.src + DL_DX });
+  }
   stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input")), X.gate, 56);
   // delay lines of OP (OP + 2 drives the NOR gates, OP + 3 the outputs of the ORs): above the
   // states, in the columns before them, so they reach them from above
@@ -220,7 +235,8 @@ function netLayout(net) {
   const box = { x0: Math.min(...xs) - 50, y0: Math.min(0, ...ys) - 50, x1: Math.max(...xs) + 90, y1: Math.max(H, ...ys) + 40 };
   const used = (k) => all.some(k);
   const headers = headerCols.filter((h) => used(h[2])).map(([c, text, , dx = 0]) => ({ c, x: X[c] + dx, y: box.y0 + 14, text }));
-  for (let k = 1; k <= dlK; k++) headers.push({ c: "dl" + k, x: X.src + DL_DX * k, y: box.y0 + 14, text: `Inputs +${k}` });
+  for (let k = 1; k <= dlK; k++) if (all.some((n) => n.major === X.src + DL_DX * k))
+    headers.push({ c: "dl" + k, x: X.src + DL_DX * k, y: box.y0 + 14, text: `Inputs +${k}` });
   return { nodes, edges, groups, headers, box, tboxes, timing: net.timing || {}, setMode: net.set_mode };
 }
 
@@ -268,7 +284,7 @@ function netPlacePipelined(net, nodes, all, shift = 0) {
     y += h;
   }
   const headerCols = [
-    ["src", "Inputs", (n) => n.src], ["rel", "Alternative OR", (n) => n.kind === "relay"], ["op", "OR", (n) => n.kind === "op"],
+    ["src", "Inputs", (n) => n.src], ["rel", "Alternative OR", (n) => n.kind === "relay" && n.x === X.rel], ["op", "OP", (n) => n.kind === "op"],
     ["gate", "OP + 1 · Ā", (n) => n.kind === "delay" || n.kind === "not_input"],
     ["notst", "S̄ (NOT states)", (n) => n.kind === "not_state"], ["term", "AND gates", (n) => n.kind === "term"],
     ["trel", "Delay +1", isTermLine], ["nor", "NOR (OR gates)", (n) => n.kind === "nor"],
@@ -323,7 +339,7 @@ function netPlaceParallel(net, nodes, all, shift = 0) {
     y += h;
   }
   const headerCols = [
-    ["src", "Inputs", (n) => n.src], ["rel", "Alternative OR", (n) => n.kind === "relay"], ["op", "OR", (n) => n.kind === "op"],
+    ["src", "Inputs", (n) => n.src], ["rel", "Alternative OR", (n) => n.kind === "relay" && n.x === X.rel], ["op", "OP", (n) => n.kind === "op"],
     ["gate", "OP + 1 · Ā", (n) => n.kind === "delay" || n.kind === "not_input"],
     ["notst", "Guards · S̄", (n) => n.kind === "not_state"], ["term", "AND gates", (n) => n.kind === "term"],
     ["trel", "Delay +1", isTermLine], ["nor", "NOR (OR gates)", (n) => n.kind === "nor"],
@@ -414,15 +430,32 @@ function routeWires(wires, nodes, all) {
   const gapAfter = (x) => majors.indexOf(x);           // channel between majors[g] and majors[g + 1]
   const chan = (g) => [majors[g] + NR + 18, majors[g + 1] - NR - 18];
 
-  // ports: each wire gets its own height on the side of the neuron
-  const spread = (list, keyY, setKey, step = 4.5) => {
-    const n = list.length, half = Math.min(NR - 4, step * (n - 1));
+  // ports: each wire gets its own height on the side of the neuron; when they do not fit
+  // (more than SIDE_PORTS), the outer ones reach a neuron through its upper and lower
+  // diagonals instead, ending (or starting) with a short radial stub
+  const SIDE_PORTS = 5;
+  const spread = (list, keyY, end, step) => {
+    const n = list.length;
     list.sort((a, b) => keyY(a) - keyY(b));
-    list.forEach((e, k) => (e[setKey] = n === 1 ? 0 : -half + 2 * half * k / (n - 1)));
+    const node = nodes[list[0][end === "out" ? "from" : "to"]];
+    const nSide = node.src ? n : Math.min(n, SIDE_PORTS), top = Math.floor((n - nSide) / 2);
+    const half = Math.min(NR - 6, step * (nSide - 1));
+    list.forEach((e, k) => {
+      const j = k - top;                       // position among the ports on the side
+      let port;
+      if (j >= 0 && j < nSide) port = { dy: nSide === 1 ? 0 : -half + 2 * half * j / (nSide - 1) };
+      else {                                   // diagonal: steeper the further from the side
+        const m = j < 0 ? top : n - nSide - top, i = j < 0 ? -j - 1 : j - nSide;
+        const ang = 40 + (m === 1 ? 0 : Math.min(36, 12 * (m - 1)) * i / (m - 1));
+        port = { ang: (j < 0 ? 1 : -1) * ang * Math.PI / 180 };
+      }
+      e[end === "out" ? "portOut" : "portIn"] = port;
+    });
   };
   const group = (end) => { const m = {}; for (const e of wires) (m[e[end]] = m[e[end]] || []).push(e); return m; };
-  for (const l of Object.values(group("from"))) spread(l, (e) => nodes[e.to].y + nodes[e.to].x * 1e-4, "dyOut", 3);
-  for (const l of Object.values(group("to"))) spread(l, (e) => nodes[e.from].y - nodes[e.from].x * 1e-4, "dyIn");
+  for (const l of Object.values(group("from"))) spread(l, (e) => nodes[e.to].y + nodes[e.to].x * 1e-4, "out", 3);
+  for (const l of Object.values(group("to"))) spread(l, (e) => nodes[e.from].y - nodes[e.from].x * 1e-4, "in", 4.5);
+  const STUB = 10;                             // radial stub of a diagonal port
 
   const blocked = (xa, xb, y, P, Q) => {
     const lo = Math.min(xa, xb), hi = Math.max(xa, xb);
@@ -432,10 +465,21 @@ function routeWires(wires, nodes, all) {
 
   const verticals = {};                                 // gap -> [{e, slot, y1, y2}]
   for (const e of wires) {
-    const P = nodes[e.from], Q = nodes[e.to];
-    const ys = P.y + e.dyOut, yt = Q.y + e.dyIn;
-    e.start = [sideX(P, e.dyOut, 1) + 0.5, ys];
-    e.end = [sideX(Q, e.dyIn, -1) - GAP, yt];
+    const P = nodes[e.from], Q = nodes[e.to], po = e.portOut, pi = e.portIn;
+    e.head = null; e.tail = null;
+    if (po.ang === undefined) e.start = [sideX(P, po.dy, 1) + 0.5, P.y + po.dy];
+    else {                                     // leaves through a diagonal on the right
+      const c = Math.cos(po.ang), sn = Math.sin(po.ang);
+      e.head = [P.x + (NR + 0.5) * c, P.y - (NR + 0.5) * sn];
+      e.start = [P.x + (NR + STUB) * c, P.y - (NR + STUB) * sn];
+    }
+    if (pi.ang === undefined) e.end = [sideX(Q, pi.dy, -1) - GAP, Q.y + pi.dy];
+    else {                                     // arrives through a diagonal on the left
+      const c = Math.cos(pi.ang), sn = Math.sin(pi.ang);
+      e.tail = [Q.x - (NR + GAP) * c, Q.y - (NR + GAP) * sn];
+      e.end = [Q.x - (NR + STUB) * c, Q.y - (NR + STUB) * sn];
+    }
+    const ys = e.start[1], yt = e.end[1];
     const gP = gapAfter(P.major), gQ = gapAfter(Q.major) - 1;
     let plan;
     if (gP === gQ) plan = [{ g: gP, y1: ys, y2: yt }];
@@ -460,9 +504,10 @@ function routeWires(wires, nodes, all) {
     ordered.forEach((v, k) => (v.x = n === 1 ? (a + b) / 2 : a + (b - a) * k / (n - 1)));
   }
   for (const e of wires) {
-    const pts = [e.start];
+    const pts = e.head ? [e.head, e.start] : [e.start];
     for (const v of e.plan) pts.push([v.x, v.y1], [v.x, v.y2]);
     pts.push(e.end);
+    if (e.tail) pts.push(e.tail);
     e.points = pts.filter((p, k) => k === 0 || Math.abs(p[0] - pts[k - 1][0]) + Math.abs(p[1] - pts[k - 1][1]) > 0.01);
   }
 }
@@ -575,60 +620,132 @@ function resetNetLabels() {
 }
 
 // ------------------------------------------------------------------ drawing
+// Names follow the papers: OP, the alternative OR gate; Ā and S̄, the NOT gates of an input and of
+// a state; T0, T1... the transitions (their AND gates); NOR gates; Set (N1) and ring of the latches.
+const stName = (sid) => {
+  const g = netData && netData.groups.find((x) => x.sid === sid);
+  const st = spec.states.find((x) => x.id === sid);
+  return g ? netLbl("group:" + g.sid, g.label) : st ? st.name : sid;
+};
+// negation as in the papers: a bar over a one-letter name (Ā, S̄0), ¬ before longer ones
+const bar = (name) => (/^[A-Za-z]\d*$/.test(name) ? name[0] + "\u0304" + name.slice(1) : "¬" + name);
+function termTitle(n) {
+  const i = spec.transitions.findIndex((t) => t.id === n.tid), t = spec.transitions[i];
+  const k = n.k || 0, multi = n.label && / \(\d+\)( \+1)?$/.test(n.label);
+  const route = t ? `${stName(t.from)}→${stName(t.to)}` : n.label.replace(/ \(\d+\)( \+1)?$/, "").replace(/ \+1$/, "");
+  return `T${i < 0 ? "?" : i}${multi ? "." + (k + 1) : ""} · ${route}`;
+}
+const delayName = (n) => {                     // A +3, OP +2...
+  const base = n.label.replace(/ \+\d+$/, "");
+  return `${base} + ${n.k}`;
+};
 function netGlyph(n) {
   if (n.kind === "input") return n.label.length <= 3 ? n.label : n.label.slice(0, 2) + "…";
   if (n.kind === "init") return "init";
   if (n.kind === "op") return "OP";
   if (n.kind === "delay") return "OP+1";
-  // the name of a delay line fits inside it when short (no label below, which wires would cross)
+  // the name of a delay neuron fits inside it when short (no label below, which wires would cross)
   if (n.kind === "delay_line") return n.label.replace(" ", "").length <= 6 ? n.label.replace(" ", "") : "+" + n.k;
   if (isTermLine(n)) return "+1";
-  if (n.kind === "not_input") return "¬";
-  if (n.kind === "not_state") return "S̄";
+  if (n.kind === "not_input" || n.kind === "not_state") {
+    const b = bar(n.label.replace(/^NOT /, ""));
+    return b.length <= 4 ? b : "¬";
+  }
   if (n.kind === "no_event" || n.kind === "no_prev") return "g";
   if (n.kind === "nor") return "⊽";
   if (n.kind === "relay") return "∨";
   if (n.kind === "term") return "∧";
   if (n.kind === "latch") return "N" + (n.j + 1);
-  return "out";
+  return "Out";
 }
 function netLabelLines(n) {
   if (n.kind === "input" && n.label.length > 3) return [n.label];
-  if (n.kind === "not_input" || n.kind === "not_state") return [n.label.replace(/^NOT /, "¬")];
+  if (n.kind === "not_input" || n.kind === "not_state") {
+    const b = bar(n.label.replace(/^NOT /, ""));
+    return b.length <= 4 ? [] : [b];
+  }
   if (n.kind === "delay") return [];
   if (isTermLine(n)) return [];
   if (n.kind === "delay_line") return n.label.replace(" ", "").length <= 6 ? [] : [n.label];
   if (n.kind === "no_event") return ["¬OP(t) ∧ OP(t−1)"];
   if (n.kind === "no_prev") return ["OP(t) ∧ ¬OP(t−2)"];
-  if (n.kind === "nor") return [n.role === "output" ? "NOR Output" : "NOR"];
-  if (n.kind === "relay") return [n.label];
+  if (n.kind === "nor") return [n.role === "output" ? "NOR · Output" : `NOR · Set ${stName(n.sid)}`];
+  if (n.kind === "relay") return [n.input || n.label];
+  if (n.kind === "output") return ["Output"];
   if (n.kind === "term") {
     const t = transById(n.tid);
     const cond = n.cond || (t ? t.options[n.k] : null);
-    if (n.via) return [VIA_LABEL[n.via] || n.via];          // parallel: the box of the term has its name
-    return [n.label.replace(/ \(\d+\)$/, ""), cond ? optionText(cond) : ""];
+    if (n.via) return [VIA_LABEL[n.via] || n.via];          // parallel: the box of the transition has its name
+    return [termTitle(n), cond ? optionText(cond) : ""];
   }
   return [];
 }
+// full name of a neuron (tooltips, panels, raster rows)
 function netName(n) {
-  if (n.kind === "latch") {
-    const g = netData && netData.groups.find((x) => x.sid === n.sid);
-    const st = g ? netLbl("group:" + g.sid, g.label) : n.label.split(".")[0];
-    return `${st} · ${netGlyphOf(n)} (${n.j ? "ring" : "set"})`;
+  if (n.kind === "latch") return `${stName(n.sid)} · ${n.j ? `ring (${netGlyphOf(n)})` : `Set (${netGlyphOf(n)})`}`;
+  const l = netLinesOf(n), g = netGlyphOf(n);
+  const t = n.kind === "term" ? transById(n.tid) : null, cond = t ? (n.cond || t.options[n.k]) : null;
+  switch (n.kind) {
+    case "input": return `Input ${n.label}`;
+    case "init": return "Initialisation";
+    case "relay": return `Alternative OR · input ${l[0]}`;
+    case "op": return "OP (alternative OR gate)";
+    case "delay": return "Delay neuron OP + 1";
+    case "delay_line": return `Delay neuron ${delayName(n)}`;
+    case "term_relay": return `Delay neuron ${termTitle(n)} + 1`;
+    case "reset_relay": return `Delay neuron Reset ${stName(n.sid)} + 1`;
+    case "not_input": case "not_state": return `NOT gate ${l[0] || g}`;
+    case "no_event": case "no_prev": return `Bypass guard ${l[0]}`;
+    case "nor": return `NOR gate · ${n.role === "output" ? "Output" : "Set " + stName(n.sid)}`;
+    case "output": return "Output (pattern found)";
+    case "term": return n.via ? `AND gate ${termTitle(n)} · ${cond ? optionText(cond) : ""} · ${l[0]}`
+      : `AND gate ${l[0]} · ${l[1]}`;
   }
-  const l = netLinesOf(n);
-  if (n.kind === "term" && n.via) {
-    const t = transById(n.tid), cond = n.cond || (t ? t.options[n.k] : null);
-    return `${n.label.replace(/ \(\d+\)$/, "")} · ${cond ? optionText(cond) : ""} · ${l[0]}`;
+  return l.length ? l[0] : netLbl(netId(n) + "#g", n.label);
+}
+// what a synapse does, in the words of the papers
+function synRole(e) {
+  const P = netData.nodes[e.from], Q = netData.nodes[e.to], ex = e.rec === "exc";
+  const srcLine = (n) => n.kind === "input" || (n.kind === "delay_line" && n.base && n.base[0] === "src");
+  switch (Q.kind) {
+    case "relay": return ex ? "input" : "priority: an earlier input spiked";
+    case "op": return "alternative OR gate";
+    case "delay": case "delay_line": return "one step later";
+    case "term_relay": return "the transition, one step later";
+    case "reset_relay": return "the Reset, one step later";
+    case "not_input": return ex ? "operation signal (OP)" : "the input spiked";
+    case "not_state":
+      if (ex) return "operation signal (OP)";
+      return P.kind === "latch" ? "the state is active" : "the state was just entered";
+    case "no_event": return ex ? "OP at t − 1" : "OP at t: input spikes now";
+    case "no_prev": return ex ? "OP at t" : "OP at t − 2: input spikes 2 steps before";
+    case "nor": return ex ? "operation signal (OP + 2)" : "an AND gate of the OR gate fired";
+    case "output": return ex ? (P.kind === "term" ? "OR gate" : "operation signal (OP + 3)") : "no accepting transition (NOR)";
+    case "term":
+      if (ex) {
+        if (P.kind === "term") return "bypass t−1: the source state was just entered";
+        return srcLine(P) ? "first positive input" : "delay neuron (no positive input)";
+      }
+      if (P.kind === "not_state") return "the source state is not active";
+      if (P.kind === "not_input") return "a positive input did not spike";
+      if (srcLine(P)) return "a negated input spiked";
+      if (P.kind === "term") return "the source state changed at t − 1";
+      if (P.kind === "term_relay" || P.kind === "reset_relay") return "the source state changed at t − 2";
+      if (P.kind === "latch") return "the source state was already active";
+      if (P.kind === "nor") return "the source state was not entered at t − 2";
+      return "no input spikes (bypass guard)";
+    case "latch":
+      if (Q.j === 0) {
+        if (ex) return P.kind === "term" ? "Set (OR gate)" : "operation signal (OP + 3)";
+        if (P.key === Q.key) return "self-inhibition";
+        if (P.kind === "latch") return "the state is already active";
+        if (P.kind === "nor") return "Set: no entering transition (NOR)";
+        return "cancels a Set still pending";
+      }
+      if (ex) return P.kind === "init" ? "active at start" : P.j === 0 ? "Set → ring" : "ring";
+      return "Reset";
   }
-  if (n.kind === "term") return `${l[0]} · ${l[1]}`;
-  if (isTermLine(n)) return n.label;
-  if (n.kind === "nor" && n.role === "set" && netData) {
-    const g = netData.groups.find((x) => x.sid === n.sid);
-    return `NOR set ${g ? netLbl("group:" + g.sid, g.label) : n.label.replace(/^NOR set /, "")}`;
-  }
-  if (l.length) return l[0];
-  return netLbl(netId(n) + "#g", n.label);
+  return ex ? "excitatory" : "inhibitory";
 }
 
 function drawNetwork() {
@@ -639,7 +756,7 @@ function drawNetwork() {
   for (const h of D.headers) parts.push(`<text class="col-head" x="${h.x}" y="${h.y}" ${ed("head:" + h.c, h.text)}>${esc(netLbl("head:" + h.c, h.text))}</text>`);
   if (!netHidden.has("term")) for (const b of D.tboxes || []) {        // the AND gates of a term (parallel)
     const t = transById(b.n.tid), cond = b.n.cond || (t ? t.options[b.n.k] : null);
-    const name = b.n.label.replace(/ \(\d+\)$/, ""), key = `tbox:${b.n.tid}:${b.n.k}`;
+    const name = termTitle(b.n), key = `tbox:${b.n.tid}:${b.n.k}`;
     parts.push(`<rect class="term-box" data-tbox="${esc(b.n.tid)}|${b.n.k}" x="${b.x0}" y="${b.y0}" width="${b.x1 - b.x0}" height="${b.y1 - b.y0}" rx="8"/>
       <text class="term-name" x="${b.x0 + 7}" y="${b.y0 + 13}" ${ed(key, name)}>${esc(netLbl(key, name))}</text>
       <text class="term-cond" x="${b.x0 + 7}" y="${b.y0 + 25}">${esc(cond ? optionText(cond) : "")}</text>`);
@@ -655,7 +772,7 @@ function drawNetwork() {
     // bypasses have their own checkbox, independent of the excitatory / inhibitory ones
     if ((e.bypass ? !show.bypass : !show[e.rec]) || !visible(P) || !visible(Q)) continue;
     const d = netEdgePath(e, D);
-    const tip = `${netName(P)} → ${netName(Q)} · ${e.rec === "exc" ? "excitatory" : "inhibitory"}${e.bypass ? " bypass" : ""}${e.delay !== 1 ? ` · delay ${e.delay}` : ""}`;
+    const tip = `${netName(P)} → ${netName(Q)} · ${synRole(e)} · ${e.rec === "exc" ? "excitatory" : "inhibitory"}${e.bypass ? " bypass" : ""}${e.delay !== 1 ? ` · delay ${e.delay}` : ""}`;
     eparts.push(`<g class="syn ${e.rec}${e.bypass ? " bypass" : ""}" data-e="${e.i}"><title>${esc(tip)}</title>
       <path class="hit" d="${d}"/><path class="line" d="${d}" marker-end="url(#${e.rec === "exc" ? "synExc" : "synInh"}${e.bypass ? "B" : ""})"/></g>`);
   }
@@ -668,7 +785,7 @@ function drawNetwork() {
     const lbl = n.kind === "term"          // synapses arrive from the left and leave to the right: label above
       ? lines.map((l, k) => `<text class="nl${k ? " sub" : ""}" y="${k || lines.length === 1 ? -NR - 5 : -NR - 17}" ${at(k)}>${esc(l.length > 26 ? l.slice(0, 25) + "…" : l)}</text>`).join("")
       : n.kind === "not_state"             // arcs arrive above and below: label on the upper left
-      ? `<text class="nl" x="${-NR - 4}" y="${-NR + 2}" style="text-anchor:end" ${at(0)}>${esc(lines[0])}</text>`
+      ? (lines.length ? `<text class="nl" x="${-NR - 4}" y="${-NR + 2}" style="text-anchor:end" ${at(0)}>${esc(lines[0])}</text>` : "")
       : lines.map((l, k) => `<text class="nl${k ? " sub" : ""}" y="${NR + 13 + 12 * k}" ${at(k)}>${esc(l)}</text>`).join("");
     const gsize = glyph.length <= 2 ? 12 : glyph.length <= 4 ? 9 : 7;
     return `<g class="nn" data-n="${n.key}" transform="translate(${n.x},${n.y})"><title>${esc(netName(n) + " — " + st.name)}</title>
@@ -731,6 +848,7 @@ function netSynDetails(el) {
       <li>${dot(Q)}<a href="#" data-goto-n="${e.to}">${esc(netName(Q))}</a><span class="muted">to</span></li>
     </ul>
     <dl class="kv syn-kv">
+      <dt>Role</dt><dd>${esc(synRole(e))}</dd>
       <dt>Type</dt><dd><span class="syn-tag ${e.rec}${e.bypass ? " bypass" : ""}">${type}</span></dd>
       ${e.delay !== 1 ? `<dt>Delay</dt><dd>${e.delay} time steps</dd>` : ""}
     </dl>
@@ -802,7 +920,7 @@ function netDetails() {
   const row = (e, other) => {
     const o = netData.nodes[other], os = NET_STYLE[o.kind] || NET_STYLE.output;
     // a row is the synapse: clicking it selects the synapse (its card links to both neurons)
-    return `<li class="syn-row" data-goto-e="${e.i}" title="Select this synapse"><i class="dot" style="background:${os.fill};border-color:${os.stroke}"></i><span class="syn-name">${esc(netName(o))}</span>
+    return `<li class="syn-row" data-goto-e="${e.i}" title="${esc(synRole(e))} · select this synapse"><i class="dot" style="background:${os.fill};border-color:${os.stroke}"></i><span class="syn-name">${esc(netName(o))}<small class="syn-role">${esc(synRole(e))}</small></span>
       <span class="syn-tag ${e.rec}${e.bypass ? " bypass" : ""}">${e.rec === "exc" ? "exc" : "inh"}</span></li>`;
   };
   const lat = netLatency(netPinned);
