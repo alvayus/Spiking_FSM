@@ -439,9 +439,45 @@ table.tbl tr.bad td { background: #fff3f3; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .toast { position: fixed; bottom: 20px; left: 50%; z-index: 70; max-width: 80vw; padding: 10px 16px; border-radius: 8px; transform: translateX(-50%); background: var(--ink); color: #fff; font-size: 13px; }
 
+/* ---------------------------------------------------------------- small screens */
+#canvas, .net { touch-action: none; }                 /* the canvases handle touch themselves */
 @media (max-width: 1100px) {
   .brand { min-width: 0; }
   .subtitle { display: none; }
+  .topbar-end { min-width: 0; }
   .panel { width: 320px; }
   .hint { display: none; }
+}
+/* tablets in portrait and phones: one column, the page scrolls */
+@media (max-width: 900px) {
+  .topbar { flex-wrap: wrap; gap: 6px 12px; height: auto; padding: 8px 12px; }
+  .topbar-end { display: none; }
+  .tabs { margin: 0; overflow-x: auto; scrollbar-width: none; }
+  main { height: auto; }
+  .tabpane.active { flex-direction: column; }
+  .canvas-wrap { flex: none; height: max(360px, calc(100svh - 150px)); }
+  .panel, .panel.left { width: 100%; overflow: visible; border: 0; border-top: 1px solid var(--line); }
+  .panel.left { border-top: 0; border-bottom: 1px solid var(--line); }
+  .results { overflow: visible; padding: 12px; }
+  .canvas-tools { flex-wrap: wrap; row-gap: 6px; }
+  .empty-state { margin: 6vh auto; }
+}
+@media (max-width: 600px) {
+  .topbar { justify-content: center; }
+  .brand { width: 100%; justify-content: center; }
+  .tabs { width: 100%; }
+  .tab { flex: 1; justify-content: center; gap: 5px; padding: 7px 6px; font-size: 13px; }
+  .tab .num { width: 18px; height: 18px; font-size: 11px; }
+  .canvas-tools { top: 8px; left: 8px; right: 8px; gap: 6px; }
+  .canvas-tools .btn { padding: 6px 9px; font-size: 13px; }
+  .tool-sep, .file-name { display: none; }
+  .zoom-bar { right: 8px; bottom: 8px; }
+  .zoom-bar button { padding: 6px 8px; }
+  .legend { gap: 6px 12px; padding: 6px 10px; }
+  .panel { padding: 10px; }
+  .row2 { grid-template-columns: 1fr; gap: 0; }
+  .raster-ctrl { flex-wrap: wrap; gap: 6px 12px; }
+  .kpi-value { font-size: 18px; }
+  .modal-box { padding: 14px; }
+  .code-head { flex-direction: column; }
 }

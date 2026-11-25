@@ -63,6 +63,44 @@ function createViewport(svgEl, layer, opt = {}) {
     }
   }, { passive: false });
 
+  // touch screens: two fingers pan and pinch to zoom. The gesture ends what the first finger
+  // started (a drag or a selection rectangle) and no event of its fingers reaches the editor.
+  const touches = new Map();
+  let pinch = null, gesture = false;
+  const two = () => [...touches.values()].slice(0, 2);
+  svgEl.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "touch") return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size !== 2) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const [a, b] = two(), first = [...touches.keys()][0];
+    pinch = { d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, k: vp.k, tx: vp.tx, ty: vp.ty };
+    gesture = true;
+    if (pan) { pan = null; svgEl.classList.remove("panning"); }
+    svgEl.dispatchEvent(new PointerEvent("pointercancel", { pointerId: first, pointerType: "touch", bubbles: true, clientX: a.x, clientY: a.y }));
+  }, true);
+  svgEl.addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "touch" || !touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!gesture) return;
+    e.stopImmediatePropagation();
+    if (!pinch || touches.size < 2) return;
+    const [a, b] = two(), r = vp.rect();
+    const k = Math.min(vp.max, Math.max(vp.min, pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d));
+    const wx = (pinch.mx - r.left - pinch.tx) / pinch.k, wy = (pinch.my - r.top - pinch.ty) / pinch.k;
+    vp.k = k; vp.tx = (a.x + b.x) / 2 - r.left - wx * k; vp.ty = (a.y + b.y) / 2 - r.top - wy * k;
+    vp.apply();
+  }, true);
+  const lift = (e) => {
+    if (e.pointerType !== "touch" || !e.isTrusted) return;
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinch = null;
+    if (gesture) { e.stopImmediatePropagation(); if (!touches.size) gesture = false; }
+  };
+  svgEl.addEventListener("pointerup", lift, true);
+  svgEl.addEventListener("pointercancel", lift, true);
+  svgEl.addEventListener("click", (e) => { if (gesture) e.stopImmediatePropagation(); }, true);
+
   // capture phase, so a pan gesture never reaches the editor's own handlers
   svgEl.addEventListener("pointerdown", (e) => {
     const bg = opt.panOnDrag && e.button === 0 && opt.isBackground && opt.isBackground(e);

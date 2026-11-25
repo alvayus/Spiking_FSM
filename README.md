@@ -66,6 +66,8 @@ python -m http.server 8770       # then open http://127.0.0.1:8770/_site/
 
 ### Usage
 
+The page also works on tablets and phones: below 900 px wide the panels go under the canvas and the page scrolls, and on touch screens two fingers move and zoom the canvases.
+
 1. **Design.**
    - Add states by double-clicking the canvas or with **Add state**. **New** starts an empty machine.
    - Drag from the edge of a state to another to create a transition.
@@ -81,6 +83,7 @@ python -m http.server 8770       # then open http://127.0.0.1:8770/_site/
    - The panel shows the number of neurons (plus the spike sources: inputs and initialisation) and of synapses (excitatory and inhibitory).
    - **Show** filters the drawing by neuron type (spike sources, OP, delay, NOT gates, AND gates, latches) and by synapse type; its coloured checkboxes double as the legend.
    - Hover over a neuron to highlight its synapses; click it to list its incoming and outgoing synapses and to see when it first spikes after an input event (e.g. *t* + 6 for a ring neuron), with that path highlighted.
+   - Ctrl or Shift + click adds neurons and synapses to the selection (or removes them), and a click on the box of a state or a term selects all its neurons. The panel then shows the neurons and synapses that the selection uses, each synapse counted with the neuron it reaches, so the resources of separate selections add up to those of the whole network. Esc clears the selection.
    - Double-click any name of the diagram (column headings, state boxes, the text inside or next to a neuron) to rename it; only the names change. The names are saved with the machine (`net_labels` in the JSON file) and **Original names** restores them all.
    - **Save image** saves the whole diagram, with the current names and the neuron types shown, as SVG (vector) or PNG, in the folder chosen in the same file dialog as the machines.
    - **PyNN code** shows the network as readable PyNN code (one population per gate or latch, one projection per synapse, with comments), generated from the same netlist that is simulated, and lets you copy or download it.
