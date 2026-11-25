@@ -50,6 +50,7 @@ def _sim_defaults(p: dict | None) -> dict:
     p.setdefault("neuron_params", None)
     p.setdefault("save", True)
     p.setdefault("time_scale_factor", None)      # SpiNNaker: None = the smallest supported
+    p.setdefault("total_time", None)             # ms; None = 30 steps after the last input spike
     return p
 
 
@@ -58,6 +59,22 @@ def make_inputs(spec, p):
                     min_gap=int(p["min_gap"]), max_gap=int(p["max_gap"]),
                     p_input=float(p["p_input"]),
                     seed=int(p["seed"]), manual=p.get("manual"), dt=float(p["dt"]))
+
+
+def fit_duration(inp, p) -> tuple[int, int]:
+    """Simulated time steps: the total time asked for (ms), or by default 30 steps
+    after the last input spike. Input spikes at or after the end are left out of
+    ``inp``; returns (steps, number of input spike times left out)."""
+    if not p.get("total_time"):
+        return max([e for e, _ in inp["events"]] + [INIT_STEP]) + 30, 0
+    duration = max(int(round(float(p["total_time"]) / float(p["dt"]))), 1)
+    cut = sum(1 for e, _ in inp["events"] if e >= duration)
+    if cut:
+        inp["events"] = [ev for ev in inp["events"] if ev[0] < duration]
+        inp["trains"] = {k: [t for t in v if t < duration] for k, v in inp["trains"].items()}
+        if "manual_steps" in inp:
+            inp["manual_steps"] = [t for t in inp["manual_steps"] if t < duration]
+    return duration, cut
 
 
 def run(spec: dict, params: dict | None = None) -> dict:
@@ -70,10 +87,11 @@ def run(spec: dict, params: dict | None = None) -> dict:
     if p["backend"] != "ideal" and tsf and int(tsf) < pynn_runner.time_scale_factor(float(p["dt"])):
         return dict(ok=False, errors=[f"With a {float(p['dt']):g} ms time step SpiNNaker needs a time scale factor "
                                       f"of at least {pynn_runner.time_scale_factor(float(p['dt']))}."])
+    if p["total_time"] is not None and not float(p["total_time"]) > 0:
+        return dict(ok=False, errors=["The total simulation time must be greater than 0 ms."])
     net = build(s)
     inp = make_inputs(s, p)
-    last = max([e for e, _ in inp["events"]] + [INIT_STEP])
-    duration = last + 30
+    duration, cut = fit_duration(inp, p)
     t0 = time.time()
     job = str(p.get("job") or "")
     try:
@@ -96,6 +114,9 @@ def run(spec: dict, params: dict | None = None) -> dict:
     res["metrics"]["wall_time_s"] = round(elapsed, 3)
     res.pop("reference")
     notes = []
+    if cut:
+        notes.append(f"{cut} input spike time(s) at or after the end of the simulation "
+                     f"({float(p['total_time']):g} ms) were left out.")
     if inp.get("dropped"):
         notes.append(f"{inp['dropped']} random spike time(s) were left out because they fell less than "
                      f"{max(int(p['min_gap']), 1)} steps (the minimum spacing) from one of the typed spikes.")

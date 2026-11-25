@@ -104,9 +104,10 @@ function collectParams() {
     n_events: +$("#nEvents").value, min_gap: Math.max(1, Math.round(+$("#minGap").value)), max_gap: Math.max(1, Math.round(+$("#minGap").value), Math.round(+$("#maxGap").value)),
     p_input: +$("#pInput").value, manual,
     time_scale_factor: sim.backend !== "ideal" && parseInt($("#tsf").value, 10) >= 1 ? parseInt($("#tsf").value, 10) : null,
+    total_time: parseFloat($("#totalTime").value) > 0 ? parseFloat($("#totalTime").value) : null,
   };
   store("fsm_snn_sim", { n_events: p.n_events, min_gap: p.min_gap, max_gap: p.max_gap, p_input: p.p_input, mode: p.mode, dt: p.dt,
-    tsf: parseInt($("#tsf").value, 10) || null });   // the field, also while it is disabled
+    tsf: parseInt($("#tsf").value, 10) || null, total_time: p.total_time });   // the field, also while it is disabled
   return p;
 }
 function restoreSimFields() {
@@ -115,6 +116,7 @@ function restoreSimFields() {
   $("#pInput").value = s.p_input;
   if (s.dt > 0) $("#dt").value = s.dt;
   if (s.tsf >= 1) $("#tsf").value = s.tsf;   // kept while another simulator is chosen
+  if (s.total_time > 0) $("#totalTime").value = s.total_time;
   setMode(["manual", "mixed"].includes(s.mode) ? s.mode : "random");
 }
 function setMode(m) {

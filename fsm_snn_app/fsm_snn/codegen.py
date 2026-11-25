@@ -29,7 +29,7 @@ def _ident(text: str) -> str:
 
 
 def generate_code(spec: dict, params: dict | None = None, simulation: bool = False) -> dict:
-    from .pipeline import _sim_defaults, make_inputs     # local import: avoids a cycle
+    from .pipeline import _sim_defaults, fit_duration, make_inputs     # local import: avoids a cycle
     s = normalise(spec)
     errors, _ = validate(s)
     if errors:
@@ -37,6 +37,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     p = _sim_defaults(params)
     net = build(s)
     inp = make_inputs(s, p)
+    duration, _ = fit_duration(inp, p)
     st_by_id = {st["id"]: st for st in s["states"]}
     trans = {t["id"]: t for t in s["transitions"]}
 
@@ -219,8 +220,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     for k, v in nparams.items():
         w(f"    {k!r}: {v},")
     w("}")
-    last = max([e for e, _ in inp["events"]] + [INIT_STEP])
-    w(f"DURATION = {last + 30}                     # simulated time steps")
+    w(f"DURATION = {duration}                     # simulated time steps")
     w("")
     tsf = max(time_scale_factor(float(p["dt"])), int(p.get("time_scale_factor") or 1))
     w("sim.setup(timestep=DT, min_delay=DT" + (f", time_scale_factor={tsf})   # {tsf} times slower than real time"
@@ -293,7 +293,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         w(f'output_steps = sorted(int(round(float(t) / DT)) for t in {where[net.output][0]}.get_data("spikes").segments[0].spiketrains[0].magnitude)')
     w("sim.end()")
     if simulation:
-        _comparison(w, s, net, inp, last + 30, slug)
+        _comparison(w, s, net, inp, duration, slug)
     text = "\n".join(lines) + "\n"
     return dict(ok=True, filename=(f"run_{slug}.py" if simulation else f"pynn_{slug}.py"), text=text)
 
