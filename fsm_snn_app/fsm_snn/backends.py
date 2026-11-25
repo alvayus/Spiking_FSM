@@ -98,7 +98,7 @@ def available_backends() -> list[dict]:
 
 
 def simulate_ideal(net: Netlist | dict, trains: dict, duration_steps: int | None = None,
-                   weights: dict | None = None) -> dict:
+                   weights: dict | None = None, should_stop=None) -> dict:
     """Discrete-time Boolean simulation.
 
     A neuron fires at step t when the excitatory input arriving at t exceeds
@@ -135,6 +135,8 @@ def simulate_ideal(net: Netlist | dict, trains: dict, duration_steps: int | None
             row[post] = row.get(post, 0.0) + mult * (w["exc"] if rec == "exc" else w["inh"])
 
     for t in range(T):             # steps 0 .. T-1, as PyNN's sim.run(T * dt) records
+        if should_stop and t % 1000 == 0 and should_stop():
+            raise pynn_runner.SimulationCancelled()
         e_row, i_row = exc.pop(t, {}), inh.pop(t, {})
         fired = [j for j, v in e_row.items() if v - i_row.get(j, 0.0) >= theta]
         for j in fired:
@@ -150,7 +152,7 @@ def simulate(net: Netlist, trains: dict, backend: str = "ideal", dt: float = 1.0
              duration_steps: int | None = None, neuron_params: dict | None = None,
              weights: dict | None = None, should_stop=None) -> dict:
     if backend == "ideal":
-        return simulate_ideal(net, trains, duration_steps, weights)
+        return simulate_ideal(net, trains, duration_steps, weights, should_stop)
     if backend == "spinnaker":
         ok, why = spinnaker_reachable()
         if not ok:

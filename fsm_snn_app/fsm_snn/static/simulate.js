@@ -100,18 +100,19 @@ function setMode(m) {
 async function simulate() {
   const p = collectParams();
   busy(true, sim.backend === "ideal" ? "Simulating…" : "Simulating with PyNN (" + sim.backend + "). This may take a while…");
-  // SpiNNaker: the simulation can be cancelled; it stops at its next safe point and
-  // closes the simulator cleanly (it is never killed, which could leave the board unusable)
+  // Any simulation that lasts more than a moment can be cancelled. It stops at its next
+  // safe point; SpiNNaker is then closed cleanly (it is never killed, which could leave
+  // the board unusable).
   const cancel = $("#busyCancel");
-  if (sim.backend !== "ideal") {
-    p.job = Math.random().toString(36).slice(2);
-    Object.assign(cancel, { hidden: false, disabled: false, textContent: "Cancel" });
-    cancel.onclick = async () => {
-      Object.assign(cancel, { disabled: true, textContent: "Cancelling…" });
-      $("#busyText").textContent = "Cancelling: SpiNNaker stops at its next safe point and closes cleanly. It cannot be interrupted while it loads the network on the board, so this may take a few seconds.";
-      try { await api("/api/cancel", { job: p.job }); } catch (e) { /* the run reports it */ }
-    };
-  }
+  p.job = Math.random().toString(36).slice(2);
+  Object.assign(cancel, { hidden: true, disabled: false, textContent: "Cancel" });
+  const showCancel = setTimeout(() => (cancel.hidden = false), sim.backend === "ideal" ? 1500 : 0);
+  cancel.onclick = async () => {
+    Object.assign(cancel, { disabled: true, textContent: "Cancelling…" });
+    $("#busyText").textContent = sim.backend === "ideal" ? "Cancelling…"
+      : "Cancelling: SpiNNaker stops at its next safe point and closes cleanly. It cannot be interrupted while it loads the network on the board, so this may take a few seconds.";
+    try { await api("/api/cancel", { job: p.job }); } catch (e) { /* the run reports it */ }
+  };
   try {
     const r = await api("/api/simulate", { spec, params: p });
     if (r.cancelled) { toast("Simulation cancelled"); return; }
@@ -120,7 +121,7 @@ async function simulate() {
     try { if (await fetchNetwork()) r.netKey = netKey; } catch (e) { /* keep the netlist labels */ }
     lastResult = r; renderResults();
   } catch (e) { toast("Could not reach the server: " + e.message, 6000); }
-  finally { busy(false); cancel.hidden = true; cancel.onclick = null; }
+  finally { clearTimeout(showCancel); busy(false); cancel.hidden = true; cancel.onclick = null; }
 }
 // Spikes of the states (and Output) that differ from the reference automaton.
 function spikeDiffs(r) {
