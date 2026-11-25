@@ -458,6 +458,27 @@ table.tbl tr.bad td { background: #fff3f3; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .toast { position: fixed; bottom: 20px; left: 50%; z-index: 70; max-width: 80vw; padding: 10px 16px; border-radius: 8px; transform: translateX(-50%); background: var(--ink); color: #fff; font-size: 13px; }
 
+/* ---------------------------------------------------------------- PDF of the Power analysis tab */
+.print-head { display: none; }
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body.print-energy { height: auto; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body.print-energy > :not(main), body.print-energy .tabpane:not(#tab-energy),
+  body.print-energy .energy-pdf, body.print-energy .energy-go { display: none !important; }
+  body.print-energy main { height: auto; }
+  body.print-energy #tab-energy { display: block !important; height: auto; }
+  body.print-energy .print-head { display: block; margin-bottom: 12px; }
+  .print-head h1 { margin: 0 0 4px; font-size: 18px; color: var(--ink); }
+  .print-head p { margin: 0; font-size: 12px; color: var(--muted); }
+  body.print-energy #tab-energy .results { overflow: visible; padding: 0; }
+  body.print-energy .energy-out { max-width: none; }
+  body.print-energy #tab-energy .panel { width: auto; overflow: visible; padding: 0; border: 0; background: none; }
+  body.print-energy .card { break-inside: avoid; }
+  body.print-energy details.card { break-inside: auto; }
+  body.print-energy .tbl-wrap { max-height: none; overflow: visible; }
+  body.print-energy table.tbl tr { break-inside: avoid; }
+}
+
 /* ---------------------------------------------------------------- small screens */
 #canvas, .net { touch-action: none; }                 /* the canvases handle touch themselves */
 @media (max-width: 1100px) {

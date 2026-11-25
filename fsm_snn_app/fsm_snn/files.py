@@ -14,7 +14,7 @@ import string
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DESIGNS = os.path.join(APP_DIR, "designs")
-WRITABLE = (".json", ".svg", ".png", ".md", ".csv")
+WRITABLE = (".json", ".svg", ".png")
 
 
 def _places() -> list[dict]:
@@ -72,7 +72,7 @@ def api_read(body):
 
 
 def api_write(body):
-    """Write a machine, an SVG image, a Markdown or CSV summary (``text``) or a PNG image (``base64``).
+    """Write a machine or an SVG image (``text``) or a PNG image (``base64``).
     A new file (Save as) does not replace an existing one unless asked."""
     path = _checked_path(body.get("path"), WRITABLE)
     if os.path.exists(path) and not body.get("overwrite"):
