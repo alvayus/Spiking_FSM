@@ -428,7 +428,9 @@ td.share span { min-width: 48px; text-align: right; font-variant-numeric: tabula
 .meter { flex: 1; height: 8px; border-radius: 4px; background: #eef1f4; overflow: hidden; }
 .meter > div { height: 100%; border-radius: 0 4px 4px 0; background: #2a78d6; }
 .tbl .dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 1px solid; border-radius: 50%; vertical-align: -1px; }
-.formula { margin: 8px 0; padding: 8px 10px; border-radius: 7px; background: var(--soft); font-size: 12.5px; line-height: 1.7; white-space: nowrap; overflow-x: auto; }
+.formula { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); overflow-x: auto; }
+.formula-math { margin: 0; font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", serif; font-size: 16px; color: var(--ink); }
+.formula-math mtext { font-family: inherit; }
 .energy-consts td:first-child { white-space: nowrap; }
 .tbl-wrap { max-height: 360px; overflow: auto; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
