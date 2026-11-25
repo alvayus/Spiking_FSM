@@ -1,4 +1,4 @@
-/* Power analysis tab: theoretical dynamic energy of the network, estimated from the spikes of the
+/* Power tab: theoretical dynamic energy of the network, estimated from the spikes of the
  * last simulation with the energy model of the spiking ALU work (fsm_snn/energy.py). It
  * depends only on the spikes, not on the simulator that produced them. */
 "use strict";

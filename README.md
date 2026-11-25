@@ -92,7 +92,7 @@ The page also works on tablets and phones: below 900 px wide the panels go under
    - Press **Simulate**. The activity of the network is compared with a reference automaton; if they differ, the missing and extra spikes of each state are listed and highlighted in the plot (missing spikes in orange, extra spikes in red).
    - The activity raster follows the layout of the figures of the paper (inputs at the bottom, then OP, the states and Output on top). With either simulator, **Show expected** adds below it the plot of the FSM itself (input signals and states), which changes state at the very step of each input event (no synaptic delays). **Save image** saves the plots shown as SVG or PNG. Extra and missing spikes are found by comparing the network with that reference shifted by its processing time (states 6 steps, Output 4 steps after the event).
    - Every run is saved in `results/<date>_<name>_<simulator>/`: `fsm.json`, `simulation.json` with spikes and metrics, and `raster.png`.
-4. **Power analysis.**
+4. **Power.**
    - Estimates the theoretical dynamic energy of the spikes of the last simulation, with the energy model used for the spiking ALU (Ayuso-Martinez et al., *Advanced Intelligent Systems*, 2025, Eq. 3, from Risi, 2022) and the energy of each event measured by Moradi et al. (2018): P = Σ<sub>n</sub> r<sub>n</sub> [E<sub>spike</sub> + E<sub>en</sub> + N<sub>cores</sub> (E<sub>br</sub> + E<sub>rt</sub>) + N<sub>cam-match</sub> E<sub>pulse</sub>], with 883, 883, 6840, 360 and 324 pJ. Over a simulation, the number of spikes of each neuron replaces its rate, and N<sub>cores</sub> = 1 for a neuron with output synapses. The estimate depends only on the spikes, not on the simulator that produced them.
    - Shows the energy and mean power over the simulated time, where the energy goes (by kind of event and by type of neuron), and the energy per spike and spikes of every neuron. Before a simulation, it shows the energy per spike of every neuron.
    - Only the dynamic energy of the neurons is counted: the spike generators (inputs and initialisation) and the static power are left out, as in that work.
@@ -150,9 +150,9 @@ Every synapse has **weight 1** (excitatory and inhibitory, as in the manuscript)
 | `fsm_snn/web.py`, `static/web.js`, `build_web.py` | Web version: the API run in the browser by Pyodide, and the build of the static site |
 | `fsm_snn/inputs.py`, `reference.py`, `analysis.py` | Input spike trains, reference automaton and comparison of the simulation with it |
 | `fsm_snn/backends.py`, `pynn_runner.py`, `pipeline.py` | Ideal simulator, PyNN execution (time step, time scale factor, cancellation) and the end-to-end run |
-| `fsm_snn/energy.py` | Theoretical dynamic energy and power of the spikes (Power analysis tab) |
+| `fsm_snn/energy.py` | Theoretical dynamic energy and power of the spikes (Power tab) |
 | `fsm_snn/server.py` | HTTP API used by the web page |
-| `fsm_snn/static/` | Web page: `util.js` (helpers), `expr.js` (Boolean conditions), `viewport.js` (pan and zoom), `editor.js` (Design tab), `network.js` (Network tab), `simulate.js` (Simulate tab), `energy.js` (Power analysis tab), `app.js` (start-up) |
+| `fsm_snn/static/` | Web page: `util.js` (helpers), `expr.js` (Boolean conditions), `viewport.js` (pan and zoom), `editor.js` (Design tab), `network.js` (Network tab), `simulate.js` (Simulate tab), `energy.js` (Power tab), `app.js` (start-up) |
 
 ### Validation
 

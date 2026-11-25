@@ -1,4 +1,4 @@
-"""Theoretical dynamic energy of the network, the Power analysis tab.
+"""Theoretical dynamic energy of the network, the Power tab.
 
 The estimate follows the energy model of the spiking ALU work (Ayuso-Martinez et
 al., Advanced Intelligent Systems 7, 2400524, 2025, Eq. 3, from N. Risi's PhD
