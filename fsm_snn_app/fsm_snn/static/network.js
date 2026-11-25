@@ -653,26 +653,28 @@ function netHighlight() {
   if (!netData) return;
   const syn = netHover ? null : netSynHover;
   let nb = { edges: new Set(), nodes: new Set() };
+  const part = new Set();         // neurons shown at the end of selected synapses, but not selected
   if (netHover) nb = netNeighbours(netHover);
   else if (syn !== null) {        // a synapse: only it (its two neurons stay visible)
     const e = netData.edges[syn];
     nb = { edges: new Set([syn]), nodes: new Set([e.from, e.to]) };
-  } else {                        // the selection: its neurons with their synapses, and its synapses
-    for (const k of netSel.n) { const x = netNeighbours(k); x.edges.forEach((i) => nb.edges.add(i)); x.nodes.forEach((m) => nb.nodes.add(m)); }
-    for (const i of netSel.e) { const e = netData.edges[i]; nb.edges.add(i); nb.nodes.add(e.from); nb.nodes.add(e.to); }
+  } else {                        // the selection: exactly what is counted as selected
+    nb = { edges: netSelEdges(), nodes: new Set(netSel.n) };
+    for (const i of nb.edges) { const e = netData.edges[i]; part.add(e.from); part.add(e.to); }
   }
   layer.classList.toggle("focus", !!netHover || syn !== null || netSelSize() > 0);
   $$(".syn", layer).forEach((el) => el.classList.toggle("sel", syn !== null ? +el.dataset.e === syn : netSel.e.has(+el.dataset.e)));
   // a single selected neuron also shows the path of its latency
   const lat = netPinned && !netHover && syn === null ? netLatency(netPinned) : null;
   const path = new Set(lat ? lat.path.map((e) => e.i) : []);
-  if (lat) for (const e of lat.path) { nb.nodes.add(e.from); nb.nodes.add(e.to); }
+  if (lat) for (const e of lat.path) { part.add(e.from); part.add(e.to); }
   $$(".syn", layer).forEach((el) => {
-    el.classList.toggle("hi", nb.edges.has(+el.dataset.e) || path.has(+el.dataset.e));
+    el.classList.toggle("hi", nb.edges.has(+el.dataset.e));
     el.classList.toggle("path", path.has(+el.dataset.e));
   });
   $$(".nn", layer).forEach((el) => {
     el.classList.toggle("hi", nb.nodes.has(el.dataset.n));
+    el.classList.toggle("part", !nb.nodes.has(el.dataset.n) && part.has(el.dataset.n));
     el.classList.toggle("pinned", netSel.n.has(el.dataset.n));
   });
 }
@@ -697,10 +699,16 @@ function netSynDetails(el) {
   $$("[data-goto-n]", el).forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); netPick([a.dataset.gotoN]); }));
 }
 
+// Selected synapses: those clicked and every synapse of a selected neuron (what is highlighted).
+function netSelEdges() {
+  const s = new Set(netSel.e);
+  for (const e of netData.edges) if (netSel.n.has(e.from) || netSel.n.has(e.to)) s.add(e.i);
+  return s;
+}
 // Selected neurons (spike sources apart) and synapses (excitatory and inhibitory).
 function netSelCounts() {
-  const sel = [...netSel.n].map((k) => netData.nodes[k]).filter(Boolean), E = [...netSel.e].map((i) => netData.edges[i]);
-  return { all: sel, neurons: sel.filter((n) => !n.src).length, sources: sel.filter((n) => n.src).length,
+  const sel = [...netSel.n].map((k) => netData.nodes[k]).filter(Boolean), E = [...netSelEdges()].map((i) => netData.edges[i]);
+  return { all: sel, edges: E, neurons: sel.filter((n) => !n.src).length, sources: sel.filter((n) => n.src).length,
     synapses: E.length, exc: E.filter((e) => e.rec === "exc").length, inh: E.filter((e) => e.rec === "inh").length };
 }
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
@@ -726,7 +734,7 @@ function netSelDetails(el) {
   for (const n of r.all) kinds.set(n.kind, (kinds.get(n.kind) || 0) + 1);
   const items = r.all.slice().sort((a, b) => a.x - b.x || a.y - b.y)
     .map((n) => `<li class="syn-row" data-goto-n="${n.key}" title="Select only this neuron">${dot(n.kind)}<span class="syn-name">${esc(netName(n))}</span></li>`)
-    .concat([...netSel.e].map((i) => netData.edges[i]).map((e) => `<li class="syn-row" data-goto-e="${e.i}" title="Select only this synapse">
+    .concat(r.edges.map((e) => `<li class="syn-row" data-goto-e="${e.i}" title="Select only this synapse">
       <span class="syn-tag ${e.rec}${e.bypass ? " bypass" : ""}">${e.rec}</span><span class="syn-name">${esc(netName(N[e.from]))} → ${esc(netName(N[e.to]))}</span></li>`));
   const parts = [r.neurons && plural(r.neurons, "neuron"), r.sources && plural(r.sources, "spike source"), r.synapses && plural(r.synapses, "synapse")].filter(Boolean);
   el.hidden = false;

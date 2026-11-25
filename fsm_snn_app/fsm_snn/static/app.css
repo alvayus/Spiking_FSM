@@ -325,6 +325,7 @@ details.card[open] > summary { margin-bottom: 10px; }
 .net .byp-dot.inh { fill: var(--bypass-inh); }
 #netLayer.focus .byp-dot { opacity: .07; }
 #netLayer.focus .nn:not(.hi) { opacity: .25; }
+#netLayer.focus .nn.part:not(.hi) { opacity: .6; }       /* end of a selected synapse, not selected */
 #netLayer.focus .syn.hi .line { stroke-width: 2.2; }
 #netLayer .syn.sel .line { stroke-width: 3; }
 .net .syn { cursor: pointer; }
@@ -332,6 +333,8 @@ details.card[open] > summary { margin-bottom: 10px; }
 .syn-tag.bypass.exc { background: #dbe7fa; color: #1f4f9c; }
 .syn-tag.bypass.inh { background: #fbe5cf; color: #9a520f; }
 #netLayer .syn.path .line { stroke: var(--accent); stroke-width: 2.4; }
+#netLayer .syn.path:not(.hi) .line { stroke-width: 2; stroke-dasharray: 4 3; }
+#netLayer.focus .syn.path:not(.hi) { opacity: .7; }      /* latency path: shown, but not selected */
 .syn-icon { flex: none; }
 .net-title { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .net-title b { display: block; }
