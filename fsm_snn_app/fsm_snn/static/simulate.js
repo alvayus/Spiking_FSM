@@ -54,16 +54,19 @@ function checkTyped() {
   const box = $("#manualCheck");
   if (sim.mode === "random") { box.innerHTML = ""; return; }
   const dt = curDt(), gap = archGap(), ready = info.timing.ready_step;
-  const byStep = new Map();
+  const byStep = new Map(), offGrid = [];
   $$("#manualList textarea").forEach((t) => (t.value.match(/-?\d+(?:\.\d+)?/g) || []).forEach((v) => {
     const ms = parseFloat(v), step = roundSteps(ms / dt);
     if (step < 1) return;
+    // input spikes happen on time steps: a time between two steps is moved to the nearest one
+    if (Math.abs(ms / dt - step) > 1e-6) offGrid.push(`${msText(ms)} ms (${t.dataset.input}) → ${msText(step * dt)} ms`);
     if (!byStep.has(step)) byStep.set(step, []);
     byStep.get(step).push(`${msText(ms)} ms (${t.dataset.input})`);
   }));
   const steps = [...byStep.keys()].sort((a, b) => a - b);
   const what = (st) => byStep.get(st).join(" + ");
   const issues = [];
+  if (offGrid.length) issues.push(`Not a multiple of the ${msText(dt)} ms time step, moved to the nearest step: ${offGrid.slice(0, 4).join(", ")}${offGrid.length > 4 ? ` and ${offGrid.length - 4} more` : ""}.`);
   for (const st of steps) if (st <= ready) issues.push(`${what(st)} comes before the initial states are set: use ${msText((ready + 1) * dt)} ms or later.`);
   for (let k = 1; gap > 1 && k < steps.length; k++) {
     const a = steps[k - 1], b = steps[k];
@@ -80,7 +83,7 @@ function collectParams() {
   store("fsm_snn_manual", manual);
   const p = {
     backend: sim.backend, dt: parseFloat($("#dt").value) > 0 ? parseFloat($("#dt").value) : 1, mode: sim.mode,
-    n_events: +$("#nEvents").value, min_gap: Math.max(1, +$("#minGap").value), max_gap: Math.max(1, +$("#minGap").value, +$("#maxGap").value),
+    n_events: +$("#nEvents").value, min_gap: Math.max(1, Math.round(+$("#minGap").value)), max_gap: Math.max(1, Math.round(+$("#minGap").value), Math.round(+$("#maxGap").value)),
     p_input: +$("#pInput").value, manual,
     time_scale_factor: parseInt($("#tsf").value, 10) >= 1 ? parseInt($("#tsf").value, 10) : null,
   };

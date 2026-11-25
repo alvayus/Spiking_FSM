@@ -189,8 +189,8 @@
           <p class="note">Random input spikes: at each chosen time step one or more inputs spike at the same time, and the machine is evaluated only at these steps. A new random sequence is generated on every run.</p>
           <label class="field">Number of time steps with input spikes <input id="nEvents" type="number" min="1" value="60"></label>
           <div class="row2">
-            <label class="field">Min. spacing <span class="unit">steps</span><input id="minGap" type="number" min="1" value="5"></label>
-            <label class="field">Max. spacing <span class="unit">steps</span><input id="maxGap" type="number" min="1" value="15"></label>
+            <label class="field">Min. spacing <span class="unit">steps</span><input id="minGap" type="number" min="1" step="1" value="5"></label>
+            <label class="field">Max. spacing <span class="unit">steps</span><input id="maxGap" type="number" min="1" step="1" value="15"></label>
           </div>
           <p class="note">Spacing between consecutive input spikes, chosen at random in this range.<span id="gapMs"></span> <span id="archNote"></span></p>
           <label class="field">Probability that each input spikes at each of these steps
