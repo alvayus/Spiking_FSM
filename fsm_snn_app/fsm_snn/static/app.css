@@ -345,6 +345,8 @@ details.card[open] > summary { margin-bottom: 10px; }
 .syn-row { padding: 2px 4px; margin: 0 -4px; border-radius: 6px; cursor: pointer; }
 .syn-row:hover { background: var(--accent-soft); }
 .syn-row .syn-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.syn-list li > b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.sel-list { max-height: 240px; overflow-x: hidden; overflow-y: auto; padding: 0 4px; }
 .syn-tag { padding: 1px 6px; border-radius: 9px; font-size: 11px; font-weight: 700; }
 .syn-tag.exc { background: #e2e8f0; color: #334155; }
 .syn-tag.inh { background: #f8cecc; color: #8c2f2b; }

@@ -119,7 +119,7 @@
           </div>
         </div>
         <button id="btnNetReset" class="btn" title="Undo every renaming of the diagram" hidden>Original names</button>
-        <span class="hint">Drag or scroll to move · Ctrl + scroll to zoom · Hover over a neuron to see its synapses, click it for details · Double-click a name to rename it</span>
+        <span class="hint">Drag or scroll to move · Ctrl + scroll to zoom · Hover over a neuron to see its synapses, click it for details · Ctrl + click: select several · Double-click a name to rename it</span>
       </div>
       <svg id="netCanvas" class="net" tabindex="0" aria-label="Spiking network">
         <defs>
@@ -140,7 +140,8 @@
         <summary>How to use it</summary>
         <ol class="note">
           <li>Hover over a neuron to highlight its synapses, or over a synapse to highlight only that synapse.</li>
-          <li>Click a neuron to see its synapses and when it spikes after an input spike (path in blue), or a synapse to see its type, weight and delay. Click the background to close it.</li>
+          <li>Click a neuron to see its synapses and when it spikes after an input spike (path in blue), or a synapse to see its type, weight and delay. Click the background or press Esc to close it.</li>
+          <li>Ctrl or Shift + click adds neurons and synapses to the selection, or removes them. Click the box of a state or a term to select all its neurons. The selection shows the neurons and synapses it uses.</li>
           <li>Double-click a name or a column heading to rename it.</li>
           <li>Drag or scroll to move, Ctrl + scroll to zoom.</li>
           <li>Choose the implementation below, and show or hide neuron types and synapses.</li>

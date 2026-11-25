@@ -95,10 +95,45 @@ const CLEAR = NR + 6;              // clearance a wire keeps from a neuron
 let netVp = null;
 let netData = null;                // {nodes, edges, groups, headers, box}
 let netKey = null;
+// Selection: neurons (keys) and synapses (edge indices). Click selects one element,
+// Ctrl / Shift + click adds or removes it, a click on the box of a state or a term selects
+// all its neurons. netPinned / netSynPinned are the element when exactly one is selected.
+const netSel = { n: new Set(), e: new Set() };
 let netPinned = null;
 let netHover = null;
-let netSynPinned = null;          // synapse (edge index) clicked on the diagram
+let netSynPinned = null;
 let netSynHover = null;
+const netSelSize = () => netSel.n.size + netSel.e.size;
+function netSyncSel() {
+  const one = netSelSize() === 1;
+  netPinned = one && netSel.n.size ? [...netSel.n][0] : null;
+  netSynPinned = one && netSel.e.size ? [...netSel.e][0] : null;
+}
+// select these neurons and synapses; add: toggle them in the current selection
+function netPick(nodes, edges = [], add = false) {
+  const has = nodes.every((k) => netSel.n.has(k)) && edges.every((i) => netSel.e.has(i));
+  if (add) {
+    for (const k of nodes) has ? netSel.n.delete(k) : netSel.n.add(k);
+    for (const i of edges) has ? netSel.e.delete(i) : netSel.e.add(i);
+  } else {
+    const same = has && netSel.n.size === nodes.length && netSel.e.size === edges.length;
+    netSel.n.clear(); netSel.e.clear();
+    if (!same) { nodes.forEach((k) => netSel.n.add(k)); edges.forEach((i) => netSel.e.add(i)); }
+  }
+  netSyncSel(); netHighlight(); netDetails();
+}
+function netClearSel() {
+  netSel.n.clear(); netSel.e.clear(); netSyncSel(); netHighlight(); netDetails();
+}
+// neurons inside the box of a state (its latch) or of a term (its AND gates) under a screen point
+function netBoxAt(x, y) {
+  const el = document.elementFromPoint(x, y), b = el && el.closest("[data-grp], [data-tbox]");
+  if (!b || !netData) return null;
+  const all = Object.values(netData.nodes);
+  if (b.dataset.grp) return all.filter((n) => n.kind === "latch" && n.sid === b.dataset.grp).map((n) => n.key);
+  const [tid, k] = b.dataset.tbox.split("|");
+  return all.filter((n) => n.kind === "term" && n.tid === tid && String(n.k) === k).map((n) => n.key);
+}
 
 function netKeyOf(s) {
   return JSON.stringify([archOf(), s.inputs, s.states.map((x) => [x.id, x.name, !!x.initial, !!x.accepting]),
@@ -565,13 +600,13 @@ function drawNetwork() {
   if (!netHidden.has("term")) for (const b of D.tboxes || []) {        // the AND gates of a term (parallel)
     const t = transById(b.n.tid), cond = b.n.cond || (t ? t.options[b.n.k] : null);
     const name = b.n.label.replace(/ \(\d+\)$/, ""), key = `tbox:${b.n.tid}:${b.n.k}`;
-    parts.push(`<rect class="term-box" x="${b.x0}" y="${b.y0}" width="${b.x1 - b.x0}" height="${b.y1 - b.y0}" rx="8"/>
+    parts.push(`<rect class="term-box" data-tbox="${esc(b.n.tid)}|${b.n.k}" x="${b.x0}" y="${b.y0}" width="${b.x1 - b.x0}" height="${b.y1 - b.y0}" rx="8"/>
       <text class="term-name" x="${b.x0 + 7}" y="${b.y0 + 13}" ${ed(key, name)}>${esc(netLbl(key, name))}</text>
       <text class="term-cond" x="${b.x0 + 7}" y="${b.y0 + 25}">${esc(cond ? optionText(cond) : "")}</text>`);
   }
   if (!netHidden.has("latch")) for (const g of D.groups) {
     const def = netGroupDefault(g);
-    parts.push(`<rect class="latch-box" x="${g.x0}" y="${g.y0}" width="${g.x1 - g.x0}" height="${g.y1 - g.y0}" rx="10"/>
+    parts.push(`<rect class="latch-box" data-grp="${esc(g.sid)}" x="${g.x0}" y="${g.y0}" width="${g.x1 - g.x0}" height="${g.y1 - g.y0}" rx="10"/>
       <text class="latch-name" x="${g.x0 + 10}" y="${g.y0 + 16}" ${ed("group:" + g.sid, def)}>${esc(netLbl("group:" + g.sid, def))}</text>`);
   }
   const eparts = [];
@@ -614,17 +649,22 @@ function netNeighbours(key) {
 }
 function netHighlight() {
   // a neuron under the pointer first, then a synapse under the pointer, then the selection
-  const syn = netHover ? null : netSynHover ?? (netPinned ? null : netSynPinned);
-  const key = netHover || (syn !== null ? null : netPinned), layer = $("#netLayer");
-  layer.classList.toggle("focus", !!key || syn !== null);
-  let nb = key ? netNeighbours(key) : { edges: new Set(), nodes: new Set() };
-  if (syn !== null) {             // a synapse: only it (its two neurons stay visible)
+  const layer = $("#netLayer");
+  if (!netData) return;
+  const syn = netHover ? null : netSynHover;
+  let nb = { edges: new Set(), nodes: new Set() };
+  if (netHover) nb = netNeighbours(netHover);
+  else if (syn !== null) {        // a synapse: only it (its two neurons stay visible)
     const e = netData.edges[syn];
     nb = { edges: new Set([syn]), nodes: new Set([e.from, e.to]) };
+  } else {                        // the selection: its neurons with their synapses, and its synapses
+    for (const k of netSel.n) { const x = netNeighbours(k); x.edges.forEach((i) => nb.edges.add(i)); x.nodes.forEach((m) => nb.nodes.add(m)); }
+    for (const i of netSel.e) { const e = netData.edges[i]; nb.edges.add(i); nb.nodes.add(e.from); nb.nodes.add(e.to); }
   }
-  $$(".syn", layer).forEach((el) => el.classList.toggle("sel", +el.dataset.e === syn));
-  // the pinned neuron also shows the path of its latency
-  const lat = key && netPinned && !netHover ? netLatency(netPinned) : null;
+  layer.classList.toggle("focus", !!netHover || syn !== null || netSelSize() > 0);
+  $$(".syn", layer).forEach((el) => el.classList.toggle("sel", syn !== null ? +el.dataset.e === syn : netSel.e.has(+el.dataset.e)));
+  // a single selected neuron also shows the path of its latency
+  const lat = netPinned && !netHover && syn === null ? netLatency(netPinned) : null;
   const path = new Set(lat ? lat.path.map((e) => e.i) : []);
   if (lat) for (const e of lat.path) { nb.nodes.add(e.from); nb.nodes.add(e.to); }
   $$(".syn", layer).forEach((el) => {
@@ -633,7 +673,7 @@ function netHighlight() {
   });
   $$(".nn", layer).forEach((el) => {
     el.classList.toggle("hi", nb.nodes.has(el.dataset.n));
-    el.classList.toggle("pinned", !!key && el.dataset.n === netPinned);
+    el.classList.toggle("pinned", netSel.n.has(el.dataset.n));
   });
 }
 
@@ -653,13 +693,55 @@ function netSynDetails(el) {
       ${e.delay !== 1 ? `<dt>Delay</dt><dd>${e.delay} time steps</dd>` : ""}
     </dl>
 `;
-  $("#netUnpin").addEventListener("click", () => { netSynPinned = null; netHighlight(); netDetails(); });
-  $$("[data-goto-n]", el).forEach((a) => a.addEventListener("click", (ev) => {
-    ev.preventDefault(); netSynPinned = null; netPinned = a.dataset.gotoN; netHighlight(); netDetails();
-  }));
+  $("#netUnpin").addEventListener("click", netClearSel);
+  $$("[data-goto-n]", el).forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); netPick([a.dataset.gotoN]); }));
 }
+
+// Resources of the selection. Each synapse is counted with the neuron it reaches (its input
+// synapses), so the resources of separate selections add up to those of the whole network;
+// selected synapses that reach no selected neuron are added.
+function netSelResources() {
+  const N = netData.nodes, sel = [...netSel.n].map((k) => N[k]).filter(Boolean);
+  const edges = new Set(netSel.e);
+  for (const e of netData.edges) if (netSel.n.has(e.to)) edges.add(e.i);
+  const E = [...edges].map((i) => netData.edges[i]);
+  const from = (e) => (N[e.from].src ? "src" : netSel.n.has(e.from) ? "in" : "out");
+  return {
+    neurons: sel.filter((n) => !n.src), sources: sel.filter((n) => n.src), synapses: E,
+    exc: E.filter((e) => e.rec === "exc").length, inh: E.filter((e) => e.rec === "inh").length,
+    fromIn: E.filter((e) => from(e) === "in").length, fromOut: E.filter((e) => from(e) === "out").length,
+    fromSrc: E.filter((e) => from(e) === "src").length,
+    leaving: netData.edges.filter((e) => netSel.n.has(e.from) && !netSel.n.has(e.to)).length,
+  };
+}
+const netResRows = (r) => `<dl class="kv counts">
+    <dt>Neurons${r.sources.length ? `<span>+ ${r.sources.length} spike source${r.sources.length === 1 ? "" : "s"}</span>` : ""}</dt><dd class="big">${r.neurons.length}</dd>
+    <dt>Synapses<span>${r.exc} excitatory · ${r.inh} inhibitory</span></dt><dd class="big">${r.synapses.length}</dd></dl>`;
+function netSelDetails(el) {
+  const r = netSelResources(), N = netData.nodes;
+  const dot = (k) => { const s = NET_STYLE[k] || NET_STYLE.output; return `<i class="dot${k === "input" || k === "init" ? " sq" : ""}" style="background:${s.fill};border-color:${s.stroke}"></i>`; };
+  const kinds = new Map();
+  for (const n of r.neurons.concat(r.sources)) kinds.set(n.kind, (kinds.get(n.kind) || 0) + 1);
+  const src = [r.fromIn && `${r.fromIn} between selected neurons`, r.fromOut && `${r.fromOut} from other neurons`,
+    r.fromSrc && `${r.fromSrc} from spike sources`].filter(Boolean).join(" · ");
+  const items = [...netSel.n].map((k) => N[k]).filter(Boolean).sort((a, b) => a.x - b.x || a.y - b.y)
+    .map((n) => `<li class="syn-row" data-goto-n="${n.key}" title="Select only this neuron">${dot(n.kind)}<span class="syn-name">${esc(netName(n))}</span></li>`)
+    .concat([...netSel.e].map((i) => netData.edges[i]).map((e) => `<li class="syn-row" data-goto-e="${e.i}" title="Select only this synapse">
+      <span class="syn-tag ${e.rec}${e.bypass ? " bypass" : ""}">${e.rec}</span><span class="syn-name">${esc(netName(N[e.from]))} → ${esc(netName(N[e.to]))}</span></li>`));
+  el.hidden = false;
+  el.innerHTML = `<div class="inspector-head"><h3>Selection</h3><button class="btn small" id="netUnpin">Clear</button></div>
+    ${netResRows(r)}
+    <p class="note">Each synapse counts for the neuron it reaches${netSel.e.size ? ", plus the selected synapses" : ""}${src ? `: ${src}` : ""}.${r.leaving ? ` The ${r.leaving} synapse${r.leaving === 1 ? "" : "s"} from the selection to other neurons count for those.` : ""}</p>
+    ${kinds.size ? `<div class="sub-title">By type</div><ul class="syn-list">${[...kinds].map(([k, c]) => `<li>${dot(k)}<span class="syn-name">${esc((NET_STYLE[k] || NET_STYLE.output).name)}</span><b>${c}</b></li>`).join("")}</ul>` : ""}
+    <div class="sub-title">Selected (${netSelSize()})</div><ul class="syn-list sel-list">${items.join("")}</ul>`;
+  $("#netUnpin").addEventListener("click", netClearSel);
+  $$("[data-goto-n]", el).forEach((li) => li.addEventListener("click", () => netPick([li.dataset.gotoN])));
+  $$("[data-goto-e]", el).forEach((li) => li.addEventListener("click", () => { netSynHover = null; netPick([], [+li.dataset.gotoE]); }));
+}
+
 function netDetails() {
   const el = $("#netDetails");
+  if (netData && netSelSize() > 1) return netSelDetails(el);
   if (netSynPinned !== null && netData && netData.edges[netSynPinned]) return netSynDetails(el);
   el.hidden = !netPinned || !netData || !netData.nodes[netPinned];       // shown for a clicked neuron
   if (el.hidden) { el.innerHTML = ""; return; }
@@ -688,9 +770,9 @@ function netDetails() {
     <p class="note">${esc(desc)}</p>
     ${n.src ? "" : `<div class="field">Incoming synapses (${inc.length})<ul class="syn-list">${inc.map((e) => row(e, e.from)).join("") || "<li class='muted'>None</li>"}</ul></div>`}
     <div class="field">Outgoing synapses (${out.length})<ul class="syn-list">${out.map((e) => row(e, e.to)).join("") || "<li class='muted'>None</li>"}</ul></div>`;
-  $("#netUnpin").addEventListener("click", () => { netPinned = null; netHighlight(); netDetails(); });
+  $("#netUnpin").addEventListener("click", netClearSel);
   $$("[data-goto-e]", el).forEach((li) => {
-    li.addEventListener("click", () => { netSynPinned = +li.dataset.gotoE; netPinned = null; netSynHover = null; netHighlight(); netDetails(); });
+    li.addEventListener("click", () => { netSynHover = null; netPick([], [+li.dataset.gotoE]); });
     li.addEventListener("pointerenter", () => { netSynHover = +li.dataset.gotoE; netHighlight(); });
     li.addEventListener("pointerleave", () => { netSynHover = null; netHighlight(); });
   });
@@ -707,8 +789,9 @@ async function fetchNetwork() {
   const r = await api("/api/network", { spec });
   if (!r.ok) { netData = null; netKey = null; netErrors = r.errors || ["Unknown error"]; return false; }
   netData = netLayout(r.net); netKey = key; netCountsData = r.counts; netFresh = true;
-  if (netPinned && !netData.nodes[netPinned]) netPinned = null;
-  netSynPinned = netSynHover = null;        // edge indices change with the network
+  for (const k of [...netSel.n]) if (!netData.nodes[k]) netSel.n.delete(k);
+  netSel.e.clear(); netSynHover = null;     // edge indices change with the network
+  netSyncSel();
   return true;
 }
 // Implementation of the network (builder.ARCHITECTURES), saved with the machine.
@@ -768,8 +851,8 @@ function editNetLabel(textEl) {
 const SVG_PROPS = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray", "stroke-linejoin", "stroke-linecap",
   "font-family", "font-size", "font-weight", "font-style", "letter-spacing", "text-anchor", "dominant-baseline"];
 function netSvgText() {
-  const pinned = netPinned, hover = netHover, sp = netSynPinned, sh = netSynHover;
-  netPinned = netHover = netSynPinned = netSynHover = null; netHighlight();          // no highlighted neuron in the image
+  const selN = [...netSel.n], selE = [...netSel.e], hover = netHover, sh = netSynHover;
+  netSel.n.clear(); netSel.e.clear(); netHover = netSynHover = null; netHighlight();   // nothing highlighted in the image
   const live = $("#netCanvas"), clone = live.cloneNode(true);
   const L = $$("#netLayer *", live), C = $$("#netLayer *", clone);
   L.forEach((el, i) => {
@@ -780,7 +863,7 @@ function netSvgText() {
   });
   clone.querySelectorAll("title, .hit, path.hit").forEach((x) => x.remove());
   $$("path", clone).filter((x) => x.getAttribute("stroke") === "transparent" || /stroke:\s*transparent/.test(x.getAttribute("style") || "")).forEach((x) => x.remove());
-  netPinned = pinned; netHover = hover; netSynPinned = sp; netSynHover = sh; netHighlight();
+  selN.forEach((k) => netSel.n.add(k)); selE.forEach((i) => netSel.e.add(i)); netHover = hover; netSynHover = sh; netHighlight();
   const b = netData.box, W = Math.round(b.x1 - b.x0), H = Math.round(b.y1 - b.y0);
   const layer = clone.querySelector("#netLayer");
   layer.removeAttribute("transform"); layer.removeAttribute("style"); layer.removeAttribute("class");
@@ -876,8 +959,10 @@ function initNetwork() {
   netVp = createViewport(svgEl, $("#netLayer"), {
     panOnDrag: true,
     isBackground: (e) => !e.target.closest(".nn, .syn, [data-lbl]"),
-    onBackgroundClick: () => {
-      if (netPinned || netSynPinned !== null) { netPinned = netSynPinned = null; netHighlight(); netDetails(); }
+    onBackgroundClick: (e) => {
+      const add = e.ctrlKey || e.metaKey || e.shiftKey, box = netBoxAt(e.clientX, e.clientY);
+      if (box && box.length) netPick(box, [], add);
+      else if (!add && netSelSize()) netClearSel();
     },
   });
   mountZoomBar($("#netZoom"), netVp, netFit);
@@ -889,14 +974,9 @@ function initNetwork() {
   });
   svgEl.addEventListener("pointerleave", () => { netHover = netSynHover = null; netHighlight(); });
   svgEl.addEventListener("click", (e) => {
-    const n = e.target.closest(".nn");
-    if (n) {
-      netPinned = n.dataset.n === netPinned ? null : n.dataset.n; netSynPinned = null;
-    } else {
-      const sy = e.target.closest(".syn"); if (!sy) return;
-      netSynPinned = +sy.dataset.e === netSynPinned ? null : +sy.dataset.e; netPinned = null;
-    }
-    netHighlight(); netDetails();
+    const add = e.ctrlKey || e.metaKey || e.shiftKey, n = e.target.closest(".nn"), sy = n ? null : e.target.closest(".syn");
+    if (n) netPick([n.dataset.n], [], add);
+    else if (sy) netPick([], [+sy.dataset.e], add);
   });
   ["#netExc", "#netInh", "#netBypass"].forEach((id) => $(id).addEventListener("change", () => netData && drawNetwork()));
   $("#archList").addEventListener("change", (e) => {
@@ -922,7 +1002,11 @@ function initNetwork() {
   document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#netSaveWrap")) $("#netSaveMenu").hidden = true; });
   $("#codeClose").addEventListener("click", () => ($("#codeModal").hidden = true));
   $("#codeModal").addEventListener("click", (e) => { if (e.target.id === "codeModal") $("#codeModal").hidden = true; });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#codeModal").hidden = true; });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (!$("#codeModal").hidden) $("#codeModal").hidden = true;
+    else if ($("#tab-network").classList.contains("active") && netSelSize() && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) netClearSel();
+  });
   $("#codeCopy").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(codeCache.text); toast("Code copied to the clipboard"); }
     catch (err) { toast("Could not copy: select the code and copy it by hand"); }
