@@ -109,13 +109,6 @@ def min_event_gap(spec: dict) -> int:
 
 
 @dataclass
-class Signal:
-    """A spike source and the step (relative to an event) at which it fires."""
-    ref: tuple  # ("src", index) or ("n", index)
-    t: int
-
-
-@dataclass
 class Netlist:
     neurons: list = field(default_factory=list)   # dicts: label, kind
     sources: list = field(default_factory=list)   # dicts: label, kind, input

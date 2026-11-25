@@ -173,8 +173,7 @@ function netLayout(net) {
   const shift = dlK * DL_DX;
   // delay lines of neurons (OP + 2, ...): on the row of the delay neuron (OP + 1), one column per step
   const isOpLine = (n) => n.kind === "delay_line" && n.base && n.base[0] === "n" && nodes["n" + n.base[1]].kind === "op";
-  const shift2 = 0;
-  const { X, bands, groups, H, headerCols, tboxes = [] } = place(net, nodes, all, shift, shift2);
+  const { X, bands, groups, H, headerCols, tboxes = [] } = place(net, nodes, all, shift);
   const mid = H / 2;
   const stack = (list, x, dy) => list.forEach((n, k) => Object.assign(n, { x, y: mid + (k - (list.length - 1) / 2) * dy }));
   stack(all.filter((n) => n.src), X.src, 70);
@@ -191,7 +190,7 @@ function netLayout(net) {
   // delay lines of OP (OP + 2 drives the NOR gates, OP + 3 the outputs of the ORs): above the
   // states, in the columns before them, so they reach them from above
   for (const n of all.filter(isOpLine)) {
-    const x = n.k === 2 ? X.trel : n.k === 3 ? X.nor : X.gate + DL_DX * (n.k - 1);
+    const x = n.k === 2 ? X.trel : X.nor;
     Object.assign(n, { x, y: -70, major: x });
   }
   // "no input spikes now" gates (parallel): in the column of the NOT gates of the states, above
@@ -234,9 +233,7 @@ function netLayout(net) {
 }
 
 // every column but the inputs moves right by `shift` (room for the delay lines of the inputs)
-// (and the columns after the delay neuron by `shift2`, room for the delay lines of OP)
-const shifted = (cols, shift, shift2 = 0) => Object.fromEntries(Object.entries(cols).map(([c, x]) =>
-  [c, c === "src" ? x : c === "rel" || c === "op" || c === "gate" ? x + shift : x + shift + shift2]));
+const shifted = (cols, shift) => Object.fromEntries(Object.entries(cols).map(([c, x]) => [c, c === "src" ? x : x + shift]));
 // the +1 of the AND gates of a term (it tells the state it entered, 3 steps later)
 const isTermLine = (n) => n.kind === "term_relay";
 // The NOR of the set of a state and the +1 of the AND gates that enter it, in its band: the
@@ -252,8 +249,8 @@ const relSpan = (m) => (m ? 2 * (34 + TREL_DY * (m - 1) + 48) : 0);
 
 // Pipelined: one band per state with its NOT gate, the AND gates of its outgoing
 // transitions and its latch.
-function netPlacePipelined(net, nodes, all, shift = 0, shift2 = 0) {
-  const X = shifted(COLX, shift, shift2);
+function netPlacePipelined(net, nodes, all, shift = 0) {
+  const X = shifted(COLX, shift);
   const notStateOf = {};
   for (const n of all) if (n.kind === "not_state") {
     const st = spec.states.find((s) => "NOT " + s.name === n.label);
@@ -289,8 +286,8 @@ function netPlacePipelined(net, nodes, all, shift = 0, shift2 = 0) {
 // Parallel: as pipelined (NOT gate, AND gates and latch per state), plus the OR gates
 // "set" / "reset" of each state and, between the AND gates and the OR gates, a
 // corridor with two bypass lanes per state.
-function netPlaceParallel(net, nodes, all, shift = 0, shift2 = 0) {
-  const X = shifted(COLP, shift, shift2);
+function netPlaceParallel(net, nodes, all, shift = 0) {
+  const X = shifted(COLP, shift);
   const tboxes = [];
   const withLanes = spec.states.filter((s) => all.some((n) => n.kind === "term" && n.from === s.id)).length;
   const corridor = 40 + BYPASS_LANE * 2 * withLanes;
