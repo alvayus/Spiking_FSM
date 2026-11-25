@@ -11,9 +11,9 @@ intervals.  Spikes of different inputs that share a time step form one input
 * ``mixed``: a random sequence with the typed spikes inserted on top of it.
   Random events closer than min_gap steps to a typed one are dropped.
 
-The spacing is the user's choice: the pipelined network only guarantees events
-from a minimum spacing on (the analysis reports closer ones), the parallel one
-accepts any spacing.
+The spacing is the user's choice: the networks only guarantee events from a minimum
+spacing on (the analysis reports closer ones): 3 steps for the pipelined one, 1 for the
+parallel one (2 when several transitions can enter the same state at once).
 """
 
 from __future__ import annotations

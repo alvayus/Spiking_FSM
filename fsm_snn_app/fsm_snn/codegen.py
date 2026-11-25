@@ -72,12 +72,15 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             continue
         kind, label = n["kind"], n["label"]
         if kind == "op":
-            var, com = unique("OP"), "input-driven OR of every input (operation signal)"
+            var, com = unique("OP"), "OR of the input relays (operation signal)"
         elif kind == "delay_line":
             var = unique("delay_" + label.replace(" +", "_plus"))
             com = f"delay line: {label.rsplit(' +', 1)[0]} repeated {n['k']} step{'s' if n['k'] > 1 else ''} later"
         elif kind == "delay":
             var, com = unique("delay"), "delay neuron shared by the AND gates"
+        elif kind == "term_relay":
+            var = unique("plus1_" + label.replace(" +1", "").replace("→", "_"))
+            com = f"AND gates of {label[:-3]} one step later (at most one of them fires)"
         elif kind == "not_input":
             name = label[4:]
             var, com = unique("NOT_" + name), f"NOT gate of input {name}"
@@ -85,14 +88,17 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             name = label[4:]
             var, com = unique("NOT_" + name), f"NOT gate of state {name}"
         elif kind == "relay":
-            var, com = unique("copy_" + label.replace(" #", "_")), f"copy of input {label.split(' #')[0]} (1-step bypass vetoes)"
+            var = unique("relay_" + n["input"])
+            com = f"relay of input {n['input']}, inhibited by the inputs before it (at most one relay excites OP)"
         elif kind == "no_event":
-            var = unique("not_OP_" + str(n["g"]) + (("_" + label.split("#")[1]) if "#" in label else ""))
-            com = f"NOT OP(t) AND OP(t-{n['g']}): no input spikes now, some {n['g']} step{'s' if n['g'] > 1 else ''} before (cancels the bypasses)"
-        elif kind == "enter_or":
-            var, com = unique(label.replace(" ", "_")), f"OR of the AND gates that set {sname(n['sid'])}"
-        elif kind == "leave_or":
-            var, com = unique(label.replace(" ", "_")), f"OR of the AND gates that reset {sname(n['sid'])}"
+            var, com = unique("not_OP_now"), "NOT OP(t) AND OP(t-1): input spikes 1 step before and none now (cancels bypass 1)"
+        elif kind == "no_prev":
+            var, com = unique("OP_not_prev2"), "OP(t) AND NOT OP(t-2): input spikes now and none 2 steps before (cancels bypass 2)"
+        elif kind == "nor":
+            if n.get("role") == "set":
+                var, com = unique("NOR_set_" + sname(n["sid"])), f"NOR of the AND gates that enter {sname(n['sid'])} (inhibition-based OR into its N1)"
+            else:
+                var, com = unique("NOR_output"), "NOR of the AND gates that enter accepting states (inhibition-based OR into Output)"
         elif kind == "term":
             tid, k = term_info[i]
             t = trans[tid]
@@ -121,15 +127,15 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         qk = net.neurons[post]["kind"]
         pn, qn = name_of(pre), net.neurons[post]["label"]
         if qk == "op":
-            return "OP", f"input {pn} drives OP"
+            return "OP", f"{pn} drives OP"
         if qk == "relay":
-            return "NOT gates and delay neuron", f"input {pn} drives its copy"
-        if qk == "no_event":
-            return "NOT gates and delay neuron", ("OP of earlier input spikes excites it" if rec == "exc"
-                                                  else "OP of input spikes now inhibits it")
-        if qk in ("enter_or", "leave_or"):
-            return "OR gates of the states (bypasses)", f"{pn} fired"
-        if qk == "delay_line":
+            return "OP", (f"input {pn} drives its relay" if rec == "exc"
+                          else f"input {pn} inhibits it (only one relay fires)")
+        if qk in ("no_event", "no_prev"):
+            return "NOT gates and delay neuron", ("OP excites it" if rec == "exc" else "OP inhibits it")
+        if qk == "nor":
+            return "Inhibition-based OR gates", (f"{pn} excites {qn}" if rec == "exc" else f"{pn} fired: inhibits {qn}")
+        if qk in ("delay_line", "term_relay"):
             return "Delay lines", f"{pn} -> {qn} (one step later)"
         if qk == "delay":
             return "NOT gates and delay neuron", "OP -> delay"
@@ -138,6 +144,8 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
                 return "NOT gates and delay neuron", f"OP excites {qn}"
             if qk == "not_input":
                 return "NOT gates and delay neuron", f"input {pn} inhibits {qn}"
+            if pk == "term_relay":
+                return "NOT gates and delay neuron", f"{pn}: entered 3 steps before, not in the latch yet"
             return "NOT gates and delay neuron", f"latch {pn.split('.')[0]} inhibits {qn} (state active)"
         if qk == "term":
             if pk == "delay":
@@ -146,26 +154,34 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
                 return "AND gates (transition terms)", f"{pn}: source state {pn[4:]} must be active"
             if pk == "not_input":
                 return "AND gates (transition terms)", f"{pn}: {pn[4:].split(' #')[0]} must spike"
-            if pk == "relay":
-                return "AND gates (transition terms)", f"{pn}: {pn.split(' #')[0]} must not spike"
             if pk == "no_event":
-                return "AND gates (transition terms)", f"{pn}: cancels the bypass when there are no input spikes now"
+                return "AND gates (transition terms)", f"{pn}: cancels bypass 1 when there are no input spikes now"
+            if pk == "no_prev":
+                return "AND gates (transition terms)", f"{pn}: cancels bypass 2 when there were no input spikes 2 steps before"
+            if pk == "nor":
+                return "AND gates (transition terms)", f"{pn}: the source state was not entered 2 steps before (cancels bypass 2)"
             if pk == "term":
-                return "AND gates (transition terms)", (f"bypass 1: {pn} sets the source state" if rec == "exc"
+                return "AND gates (transition terms)", (f"bypass 1: {pn} enters the source state" if rec == "exc"
                                                         else f"{pn} changed the source state 1 step earlier")
-            if pk in ("enter_or", "leave_or"):
-                return "AND gates (transition terms)", (f"bypass 2: {pn}" if rec == "exc" else f"{pn} 2 steps earlier")
+            if pk == "term_relay":
+                return "AND gates (transition terms)", f"{pn}: the source state changed 2 steps earlier"
             return "AND gates (transition terms)", f"input {pn}: {pn} must not spike"
         if qk == "latch":
             st = qn.split(".")[0]
             if src_kind == "init":
                 return "Latches", f"{st} is active at start"
             if pk == "term":
-                return "Latches", (f"{pn} sets {st}" if rec == "exc" else f"{pn} resets {st}")
+                return "Latches", (f"{pn} resets {st}" if qn.endswith(("N2", "N3")) else f"{pn} cancels a set of {st} still pending")
+            if pk == "nor":
+                return "Latches", f"{pn}: {st} was not entered (inhibition-based OR)"
+            if pk in ("op", "delay", "delay_line"):
+                return "Latches", f"{pn} excites the set neuron of {st} (inhibition-based OR)"
             if pk == "latch":
                 return "Latches", "internal connections of the latch"
             return "Latches", ""
-        return "Output", f"{pn} -> output"
+        if pk == "nor":
+            return "Output", f"{pn}: no accepting state was entered"
+        return "Output", f"{pn} excites Output (inhibition-based OR)"
 
     sections = {}
     for pre, post, rec, delay in net.conns:
@@ -189,14 +205,16 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     w("Every state is a latch of three neurons: index 0 is the set neuron (N1) and")
     w("indices 1 and 2 are the ring neurons (N2, N3), which keep spiking while the state")
     w("is active. Every synapse has weight 1 and a delay of one time step (longer delays go")
-    w("through delay lines of relay neurons). Input spike times come from the settings")
-    w("of the Simulate tab.")
+    w("through delay lines of relay neurons). No neuron ever receives two excitatory spikes")
+    w("in the same step: OP is an OR of input relays that inhibit each other, and the other")
+    w("OR gates are inhibition-based (a NOR neuron and an output neuron). Input spike times")
+    w("come from the settings of the Simulate tab.")
     if bypass:
         w("")
         w("Parallel implementation: bypasses pass the transitions fired by the input spikes")
-        w("of the 2 previous steps on to the next ones, so input spikes may come on")
-        w("consecutive steps. Each term has up to three AND gates (bypass 1, bypass 2 and")
-        w("latch), and at most one of them fires.")
+        w("of the 2 previous steps on to the next ones, so input spikes may come closer")
+        w("together. Each term has up to three AND gates (bypass 1, bypass 2 and latch), and")
+        w("at most one of them fires.")
     if simulation:
         w("")
         w("The script builds the network, runs it, compares the states (and Output) with")
@@ -253,7 +271,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         extra = ", active at start" if st["initial"] else ""
         w(f"{var} = sim.Population(3, cell, label={var!r})   # latch of state {st['name']}: [N1 set, N2 ring, N3 ring]{extra}")
     w("")
-    order = ["OP", "Delay lines", "NOT gates and delay neuron", "AND gates (transition terms)", "OR gates of the states (bypasses)",
+    order = ["OP", "Delay lines", "NOT gates and delay neuron", "AND gates (transition terms)", "Inhibition-based OR gates",
              "Latches", "Output"]
     for sec in order:
         if sec not in sections:

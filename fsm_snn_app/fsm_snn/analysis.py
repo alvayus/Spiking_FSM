@@ -15,7 +15,7 @@ def _state_spikes(net: Netlist, spikes: dict, sid: str) -> list[int]:
 
 def _expected_state_steps(s, events, ref, end_step, arch="pipelined"):
     """Expected ring activity of each state (one spike per step while active): a ring
-    stops 3 steps after the input spikes that leave its state and starts state_latency
+    stops stop_latency steps after the input spikes that leave its state and starts state_latency
     steps after those that enter it."""
     lat = TIMING[arch]["state_latency"]
     st = {x["id"]: x for x in s["states"]}
@@ -34,7 +34,7 @@ def _expected_state_steps(s, events, ref, end_step, arch="pipelined"):
         left = {tmap[t]["from"] for t in fired if tmap[t]["to"] != tmap[t]["from"]}
         for sid in b:
             if sid not in a or sid in left:        # left (and maybe entered again)
-                close(sid, e + 3)
+                close(sid, e + TIMING[arch]["stop_latency"])
                 if sid in a:
                     active_from[sid] = e + lat
         for sid in a - b:
@@ -144,8 +144,9 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
     if gaps:
         warnings.append(f"{len(gaps)} input spike times arrive less than {gap} steps "
                         f"({ms(gap)} with a {dt:g} ms time step) after the previous one; "
-                        f"the {architecture(s)} network only guarantees input spikes from that spacing on "
-                        "(the parallel implementation accepts any spacing).")
+                        f"the {architecture(s)} network only guarantees input spikes from that spacing on"
+                        + (" (the parallel implementation accepts closer ones)." if architecture(s) == "pipelined"
+                           else " (several transitions can enter the same state at once)."))
 
     # ---- raster for the UI --------------------------------------------------------
     rows = []

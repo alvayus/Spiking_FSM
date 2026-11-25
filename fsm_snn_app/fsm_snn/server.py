@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import __version__, files
 from .backends import available_backends
-from .builder import ARCHITECTURES, DEFAULT_ARCHITECTURE, INIT_STEP, build
+from .builder import ARCHITECTURES, DEFAULT_ARCHITECTURE, INIT_STEP, _shared_entries, build, min_event_gap
 from .codegen import generate_code
 from .energy import estimate as estimate_energy
 from .pipeline import export_script, request_cancel, run
@@ -30,7 +30,18 @@ def api_check(body):
     """Live validation of the machine being edited (Design tab)."""
     s = normalise(body.get("spec"))
     errors, warnings = validate(s)
-    return dict(errors=errors, warnings=warnings, notes=notes(s))
+    out = dict(errors=errors, warnings=warnings, notes=notes(s))
+    if not errors:
+        out["min_event_gap"] = {a: min_event_gap(dict(s, architecture=a)) for a in ARCHITECTURES}
+        shared = _shared_entries(s)
+        if shared:
+            names = [x["name"] for x in s["states"] if x["id"] in shared]
+            out["notes"].append(
+                f"Several transitions can enter {', '.join(names)} with the same input spikes. "
+                "So that no neuron receives two excitatory spikes at once, the parallel network "
+                "has no 1-step bypass out of " + ("it" if len(names) == 1 else "them")
+                + ": it needs input spikes at least 2 steps apart.")
+    return out
 
 
 def api_network(body):

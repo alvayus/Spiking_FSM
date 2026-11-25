@@ -145,6 +145,7 @@
           <li>Double-click a name or a column heading to rename it.</li>
           <li>Drag or scroll to move, Ctrl + scroll to zoom.</li>
           <li>Choose the implementation below, and show or hide neuron types and synapses.</li>
+          <li>As in the spiking ALU on Dynap-SE, no neuron ever receives two excitatory spikes in the same step (overexcitation stops a neuron there): OP is the OR of input relays that inhibit each other, and the ORs of the AND gates are inhibition-based, a NOR neuron and an output neuron.</li>
         </ol>
       </details>
       <div class="card" id="netDetails" hidden></div>

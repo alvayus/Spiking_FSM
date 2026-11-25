@@ -60,11 +60,14 @@ function updateGapMs() {
   const dt = curDt(), lo = Math.max(1, +$("#minGap").value), hi = Math.max(lo, +$("#maxGap").value);
   $("#gapMs").textContent = ` With a ${msText(dt)} ms step: ${msText(lo * dt)} to ${msText(hi * dt)} ms between input spikes.`;
   const g = archGap();
-  $("#archNote").innerHTML = g > 1
-    ? `The <b>pipelined</b> network (Network tab) guarantees correct behaviour for input spikes at least <b>${g}</b> steps apart, the time a transition needs to be written to the latches. The parallel one accepts any spacing.`
-    : `The <b>parallel</b> network (Network tab) accepts any spacing, even input spikes on consecutive steps.`;
+  $("#archNote").innerHTML = archOf() === "pipelined"
+    ? `The <b>pipelined</b> network (Network tab) guarantees correct behaviour for input spikes at least <b>${g}</b> steps apart, the time a transition needs to be written to the latches. The parallel one accepts closer spikes.`
+    : g > 1
+      ? `The <b>parallel</b> network (Network tab) needs input spikes at least <b>${g}</b> steps apart for this machine: several transitions can enter the same state at once, and a 1-step bypass would overexcite its AND gates.`
+      : `The <b>parallel</b> network (Network tab) accepts any spacing, even input spikes on consecutive steps.`;
 }
-const archGap = () => info.architectures[archOf()].min_event_gap;
+// minimum spacing of the input spikes for the current machine (live validation), or of the implementation
+const archGap = () => (specGaps && specGaps[archOf()]) || info.architectures[archOf()].min_event_gap;
 
 // Typed spikes are checked as they are written: the network needs the initial
 // states to be set before the first event and a minimum gap between events.
@@ -218,11 +221,11 @@ function renderResults() {
 const RASTER_COLOR = {
   input: "#6c8ebf", init: "#666666", op: "#d79b00", state: "#82b366", latch: "#82b366",
   output: "#9673a6", term: "#9673a6", not_input: "#b85450", not_state: "#b85450", delay: "#d6b656",
-  relay: "#6c8ebf", no_event: "#b85450", enter_or: "#d79b00", leave_or: "#d79b00",
+  relay: "#6c8ebf", no_event: "#b85450", no_prev: "#b85450", nor: "#b85450", delay_line: "#d6b656", term_relay: "#d6b656",
 };
-const RASTER_ORDER = ["input", "init", "op", "relay", "delay", "not_input", "not_state", "no_event", "term",
-  "enter_or", "leave_or", "latch", "state", "output"];
-const isSourceKind = (k) => k === "input" || k === "init" || k === "op";
+const RASTER_ORDER = ["input", "init", "relay", "op", "delay", "delay_line", "term_relay", "not_input", "not_state", "no_event", "no_prev",
+  "term", "nor", "latch", "state", "output"];
+const isSourceKind = (k) => k === "input" || k === "init" || k === "relay" || k === "op";
 // Name of a raster row: with "All neurons", the name the neuron has in the Network tab.
 function rowName(row, r) {
   if (!netData || netKey !== r.netKey) return row.label;

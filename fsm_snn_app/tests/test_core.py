@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from fsm_snn import spec as S  # noqa: E402
 from fsm_snn.analysis import analyse  # noqa: E402
 from fsm_snn.backends import simulate  # noqa: E402
-from fsm_snn.builder import build, summary  # noqa: E402
+from fsm_snn.builder import build, min_event_gap, summary  # noqa: E402
 from fsm_snn.inputs import generate  # noqa: E402
 
 
@@ -21,6 +21,19 @@ def run(spec, arch="parallel", **kw):
     dur = last + 30
     spikes = simulate(net, inp["trains"], "ideal", duration_steps=dur)
     return analyse(spec, net, spikes, inp["events"], inp["trains"], dur)
+
+
+def overexcited(net, trains, spikes):
+    """(neuron, step) pairs in which a neuron receives two or more excitatory spikes."""
+    d = net.to_dict()
+    src = {k: (trains.get(x["input"], []) if x["kind"] == "input" else [d["init_step"]])
+           for k, x in enumerate(d["sources"])}
+    count = {}
+    for pre, post, rec, delay in d["conns"]:
+        if rec == "exc":
+            for t in (src[pre[1]] if pre[0] == "src" else spikes.get(pre[1], [])):
+                count[(post, t + delay)] = count.get((post, t + delay), 0) + 1
+    return [k for k, v in count.items() if v > 1]
 
 
 def check(res):
@@ -37,7 +50,8 @@ def test_templates_random():
     for sp in specs:
         errs, _ = S.validate(sp)
         assert not errs, errs
-        for arch, lo in [("pipelined", 3), ("parallel", 1)]:
+        for arch in ("pipelined", "parallel"):
+            lo = min_event_gap(dict(sp, architecture=arch))
             for seed in range(5):
                 check(run(sp, arch, mode="random", n_events=80, seed=seed, min_gap=lo, max_gap=9, p_input=0.5))
                 m = check(run(sp, arch, mode="random", n_events=300, seed=seed, min_gap=lo, p_input=0.4))
@@ -54,13 +68,30 @@ def test_min_gap_events_back_to_back():
 def test_counts_paper_simple():
     c = summary(dict(S.template_simple(), architecture="pipelined"))
     assert c["states"] == 3 and c["neurons"] > 0
-    # 3 latches (9) + OP + delay + NOT SGf + NOT SGb + 3 NOT states + 4 terms + delay lines SGf +1, SGb +1
-    assert c["neurons"] == 9 + 1 + 1 + 2 + 3 + 4 + 2
+    # 3 latches (9) + 2 input relays + OP + delay + NOT SGf + NOT SGb + 3 NOT states + 4 terms
+    # + 3 NOR (set of each state) + delay lines SGf +1 +2, SGb +1 +2, OP +2 +3
+    # + 4 "+1" of the terms (entered 3 steps before, towards the NOT gates of the states)
+    assert c["neurons"] == 9 + 2 + 1 + 1 + 2 + 3 + 4 + 3 + 6 + 4
     assert c["max_delay"] == 1
-    # parallel (synchronous): clock (2) + OP + delay + NOT SGf + NOT SGb + 4 terms + 3 hold
-    # + 3 enter + 3 "no transition" (one per neuron of the source state, 1 each) + 3 leave
-    # + "no stay" copies (one per neuron of the state: S0 1+1, S1 1+2, S2 1+1)
     assert summary(dict(S.template_simple(), architecture="parallel"))["neurons"] > c["neurons"]
+    # SGf and SGb together leave S2 for S0 and S1: two terms can enter S1 at once, so the
+    # parallel network has no 1-step bypass out of S1 (spikes at least 2 steps apart)
+    assert min_event_gap(dict(S.template_simple(), architecture="parallel")) == 2
+    assert min_event_gap(dict(S.template_detector(), architecture="parallel")) == 1
+
+
+def test_no_overexcitation():
+    """No neuron ever receives two excitatory spikes in the same step (Dynap-SE rule)."""
+    for sp in [S.template_simple(), S.template_detector(), S.template_sequence("ABBA")]:
+        for arch in ("pipelined", "parallel"):
+            spec = dict(sp, architecture=arch)
+            net = build(spec)
+            for seed in range(4):
+                inp = generate(spec, mode="random", n_events=120, seed=seed, p_input=0.6,
+                               min_gap=min_event_gap(spec), max_gap=6)
+                dur = inp["events"][-1][0] + 30
+                spikes = simulate(net, inp["trains"], "ideal", duration_steps=dur)
+                assert not overexcited(net, inp["trains"], spikes), (sp["name"], arch, seed)
 
 
 def test_manual_inputs():

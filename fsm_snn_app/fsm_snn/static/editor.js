@@ -548,9 +548,12 @@ function bindInspector() {
 
 // ------------------------------------------------------------------ live validation (Summary card)
 let checkTimer = null;
+let specGaps = null;               // minimum spacing of the input spikes of this machine, per implementation
 function scheduleCheck() { clearTimeout(checkTimer); checkTimer = setTimeout(runCheck, 250); }
 async function runCheck() {
   const r = await api("/api/check", { spec });
+  specGaps = r.min_event_gap || null;
+  if ($("#tab-simulate").classList.contains("active")) { updateGapMs(); checkTyped(); }
   const msgs = [];
   (r.errors || []).forEach((m) => msgs.push(`<div class="msg err">${esc(m)}</div>`));
   (r.warnings || []).forEach((m) => msgs.push(`<div class="msg warn">${esc(m)}</div>`));
