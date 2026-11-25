@@ -297,11 +297,14 @@ details.card[open] > summary { margin-bottom: 10px; }
 .net .col-head { font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; text-anchor: middle; fill: var(--muted); }
 .net .latch-box { fill: rgba(213,232,212,.25); stroke: var(--state-stroke); stroke-dasharray: 5 4; }
 .net .latch-name { font-size: 11px; font-weight: 700; fill: #3f6b2f; }
+.net .term-box { fill: rgba(225,213,231,.22); stroke: #9673a6; stroke-dasharray: 4 3; }
+.net .term-name { font-size: 10px; font-weight: 700; fill: #6a4a7c; }
+.net .term-cond { font-size: 10px; fill: #6a4a7c; font-family: "Cambria Math", "STIX Two Math", "Segoe UI Symbol", serif; }
 .net .nn { cursor: pointer; }
 .net .nn .nb { stroke-width: 2; }
 .net .nn .ng { font-weight: 700; text-anchor: middle; dominant-baseline: central; fill: var(--ink); pointer-events: none; }
 .net .nn .nl { font-size: 10px; text-anchor: middle; fill: #334155; pointer-events: none; }
-.net .col-head[data-lbl], .net .latch-name[data-lbl], .net .nn .nl[data-lbl] { pointer-events: auto; cursor: text; }
+.net .col-head[data-lbl], .net .latch-name[data-lbl], .net .term-name[data-lbl], .net .nn .nl[data-lbl] { pointer-events: auto; cursor: text; }
 .net-edit {
   position: absolute; z-index: 5; transform: translateY(-50%); padding: 3px 6px;
   border: 1.5px solid var(--accent); border-radius: 6px; background: #fff; box-shadow: 0 2px 10px rgba(15,23,42,.18);

@@ -42,7 +42,7 @@ Two implementations (``spec["architecture"]``):
   step e                input spikes
   e + 1                 OP; copies of the inputs (for the 1-step bypass)
   e + 2                 OP + 1 (delay neuron), NOT(inputs), NOT(states) -
-                        latch spikes of e + 1 -, "NOT OP, OP g steps before"
+                        latch spikes of e + 1 -, NOT OP(t) AND OP(t - x)
   e + 3                 term neurons (AND gates)
   e + 4                 output; reset of the source (N2, N3); OR gates "set" and
                         "reset" of each state (any term entering / leaving it)
@@ -61,8 +61,8 @@ Two implementations (``spec["architecture"]``):
   * bypass 2: set by the spikes at e' - 2 (its "set" gate), no change at e' - 1;
   * latch: no change at e' - 2 and e' - 1, and NOT(state) says it is active.
 
-  "NOT OP, OP g steps before" gates cancel the bypasses when there are no input
-  spikes at e'.  The 1-step bypass cannot be gathered by an OR gate (there is no time),
+  NOT OP(t) AND OP(t - x) gates (x = 1, 2) cancel the bypasses when there are no
+  input spikes at e'.  The 1-step bypass cannot be gathered by an OR gate (there is no time),
   so a term neuron that may receive k of its spikes is inhibited by k copies of
   each gate that can veto it, where k is the largest number of transitions
   terms into its source state that can fire together (found by exploring the
@@ -426,7 +426,7 @@ def _build_parallel(s, net):
     for g, copies in ((1, K), (2, 1)):
         nospike[g] = []
         for c in range(copies):
-            n = net.add_neuron(f"NOT OP, OP {g} step{'s' if g > 1 else ''} before" + (f" #{c + 1}" if c else ""),
+            n = net.add_neuron(f"NOT OP(t) AND OP(t-{g})" + (f" #{c + 1}" if c else ""),
                                "no_event", g=g)
             net.connect(N(op), n, "exc", 1 + g)
             net.connect(N(op), n, "inh", 1)

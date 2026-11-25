@@ -87,7 +87,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             var, com = unique("copy_" + label.replace(" #", "_")), f"copy of input {label.split(' #')[0]} (1-step bypass vetoes)"
         elif kind == "no_event":
             var = unique("not_OP_" + str(n["g"]) + (("_" + label.split("#")[1]) if "#" in label else ""))
-            com = f"NOT OP now, with OP {n['g']} step{'s' if n['g'] > 1 else ''} before (cancels the bypasses)"
+            com = f"NOT OP(t) AND OP(t-{n['g']}): no input spikes now, some {n['g']} step{'s' if n['g'] > 1 else ''} before (cancels the bypasses)"
         elif kind == "enter_or":
             var, com = unique(label.replace(" ", "_")), f"OR of the AND gates that set {sname(n['sid'])}"
         elif kind == "leave_or":
