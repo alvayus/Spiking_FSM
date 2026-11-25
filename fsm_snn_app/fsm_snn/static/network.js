@@ -697,43 +697,43 @@ function netSynDetails(el) {
   $$("[data-goto-n]", el).forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); netPick([a.dataset.gotoN]); }));
 }
 
-// Resources of the selection. Each synapse is counted with the neuron it reaches (its input
-// synapses), so the resources of separate selections add up to those of the whole network;
-// selected synapses that reach no selected neuron are added.
-function netSelResources() {
-  const N = netData.nodes, sel = [...netSel.n].map((k) => N[k]).filter(Boolean);
-  const edges = new Set(netSel.e);
-  for (const e of netData.edges) if (netSel.n.has(e.to)) edges.add(e.i);
-  const E = [...edges].map((i) => netData.edges[i]);
-  const from = (e) => (N[e.from].src ? "src" : netSel.n.has(e.from) ? "in" : "out");
-  return {
-    neurons: sel.filter((n) => !n.src), sources: sel.filter((n) => n.src), synapses: E,
-    exc: E.filter((e) => e.rec === "exc").length, inh: E.filter((e) => e.rec === "inh").length,
-    fromIn: E.filter((e) => from(e) === "in").length, fromOut: E.filter((e) => from(e) === "out").length,
-    fromSrc: E.filter((e) => from(e) === "src").length,
-    leaving: netData.edges.filter((e) => netSel.n.has(e.from) && !netSel.n.has(e.to)).length,
-  };
+// Selected neurons (spike sources apart) and synapses (excitatory and inhibitory).
+function netSelCounts() {
+  const sel = [...netSel.n].map((k) => netData.nodes[k]).filter(Boolean), E = [...netSel.e].map((i) => netData.edges[i]);
+  return { all: sel, neurons: sel.filter((n) => !n.src).length, sources: sel.filter((n) => n.src).length,
+    synapses: E.length, exc: E.filter((e) => e.rec === "exc").length, inh: E.filter((e) => e.rec === "inh").length };
 }
-const netResRows = (r) => `<dl class="kv counts">
-    <dt>Neurons${r.sources.length ? `<span>+ ${r.sources.length} spike source${r.sources.length === 1 ? "" : "s"}</span>` : ""}</dt><dd class="big">${r.neurons.length}</dd>
-    <dt>Synapses<span>${r.exc} excitatory · ${r.inh} inhibitory</span></dt><dd class="big">${r.synapses.length}</dd></dl>`;
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+// Summary panel: totals of the network and, with a selection, how many of them are selected
+function renderNetCounts() {
+  const c = netCountsData;
+  if (!c || !netData) return;
+  const sel = netSelSize() ? netSelCounts() : null;
+  const head = sel ? `<span></span><span class="ch">Selected</span><span class="ch">Total</span>` : "";
+  const row = (name, sub, s, t) => `<div class="cl">${name}<span>${sub}</span></div>${sel ? `<b class="cs">${s}</b>` : ""}<b class="ct">${t}</b>`;
+  const nSub = sel ? `selected: ${plural(sel.neurons, "neuron")}${sel.sources ? ` + ${plural(sel.sources, "spike source")}` : ""} · total: ${c.neurons} + ${plural(c.sources, "spike source")}`
+    : `${c.neurons} neurons + ${plural(c.sources, "spike source")} (inputs and initialisation)`;
+  const sSub = sel ? `selected: ${sel.exc} exc. · ${sel.inh} inh. · total: ${c.excitatory} exc. · ${c.inhibitory} inh.`
+    : `${c.excitatory} excitatory · ${c.inhibitory} inhibitory`;
+  $("#netCounts").innerHTML = `<div class="counts3${sel ? " with-sel" : ""}">${head}
+    ${row("Neurons", nSub, sel && sel.neurons + sel.sources, c.neurons + c.sources)}
+    ${row("Synapses", sSub, sel && sel.synapses, c.synapses)}</div>`;
+}
 function netSelDetails(el) {
-  const r = netSelResources(), N = netData.nodes;
+  const r = netSelCounts(), N = netData.nodes;
   const dot = (k) => { const s = NET_STYLE[k] || NET_STYLE.output; return `<i class="dot${k === "input" || k === "init" ? " sq" : ""}" style="background:${s.fill};border-color:${s.stroke}"></i>`; };
   const kinds = new Map();
-  for (const n of r.neurons.concat(r.sources)) kinds.set(n.kind, (kinds.get(n.kind) || 0) + 1);
-  const src = [r.fromIn && `${r.fromIn} between selected neurons`, r.fromOut && `${r.fromOut} from other neurons`,
-    r.fromSrc && `${r.fromSrc} from spike sources`].filter(Boolean).join(" · ");
-  const items = [...netSel.n].map((k) => N[k]).filter(Boolean).sort((a, b) => a.x - b.x || a.y - b.y)
+  for (const n of r.all) kinds.set(n.kind, (kinds.get(n.kind) || 0) + 1);
+  const items = r.all.slice().sort((a, b) => a.x - b.x || a.y - b.y)
     .map((n) => `<li class="syn-row" data-goto-n="${n.key}" title="Select only this neuron">${dot(n.kind)}<span class="syn-name">${esc(netName(n))}</span></li>`)
     .concat([...netSel.e].map((i) => netData.edges[i]).map((e) => `<li class="syn-row" data-goto-e="${e.i}" title="Select only this synapse">
       <span class="syn-tag ${e.rec}${e.bypass ? " bypass" : ""}">${e.rec}</span><span class="syn-name">${esc(netName(N[e.from]))} → ${esc(netName(N[e.to]))}</span></li>`));
+  const parts = [r.neurons && plural(r.neurons, "neuron"), r.sources && plural(r.sources, "spike source"), r.synapses && plural(r.synapses, "synapse")].filter(Boolean);
   el.hidden = false;
   el.innerHTML = `<div class="inspector-head"><h3>Selection</h3><button class="btn small" id="netUnpin">Clear</button></div>
-    ${netResRows(r)}
-    <p class="note">Each synapse counts for the neuron it reaches${netSel.e.size ? ", plus the selected synapses" : ""}${src ? `: ${src}` : ""}.${r.leaving ? ` The ${r.leaving} synapse${r.leaving === 1 ? "" : "s"} from the selection to other neurons count for those.` : ""}</p>
-    ${kinds.size ? `<div class="sub-title">By type</div><ul class="syn-list">${[...kinds].map(([k, c]) => `<li>${dot(k)}<span class="syn-name">${esc((NET_STYLE[k] || NET_STYLE.output).name)}</span><b>${c}</b></li>`).join("")}</ul>` : ""}
-    <div class="sub-title">Selected (${netSelSize()})</div><ul class="syn-list sel-list">${items.join("")}</ul>`;
+    <p class="sel-count">${parts.join(" · ")}</p>
+    ${kinds.size > 1 ? `<div class="sub-title">Neurons by type</div><ul class="syn-list">${[...kinds].map(([k, c]) => `<li>${dot(k)}<span class="syn-name">${esc((NET_STYLE[k] || NET_STYLE.output).name)}</span><b>${c}</b></li>`).join("")}</ul>` : ""}
+    <div class="sub-title">Selected elements</div><ul class="syn-list sel-list">${items.join("")}</ul>`;
   $("#netUnpin").addEventListener("click", netClearSel);
   $$("[data-goto-n]", el).forEach((li) => li.addEventListener("click", () => netPick([li.dataset.gotoN])));
   $$("[data-goto-e]", el).forEach((li) => li.addEventListener("click", () => { netSynHover = null; netPick([], [+li.dataset.gotoE]); }));
@@ -741,6 +741,7 @@ function netSelDetails(el) {
 
 function netDetails() {
   const el = $("#netDetails");
+  renderNetCounts();
   if (netData && netSelSize() > 1) return netSelDetails(el);
   if (netSynPinned !== null && netData && netData.edges[netSynPinned]) return netSynDetails(el);
   el.hidden = !netPinned || !netData || !netData.nodes[netPinned];       // shown for a clicked neuron
@@ -815,10 +816,6 @@ async function loadNetwork() {
   $("#netEmpty").hidden = true;
   if (!netFresh) { drawNetwork(); return; }
   netFresh = false;
-  const c = netCountsData;
-  $("#netCounts").innerHTML = `<dl class="kv counts">
-    <dt>Neurons<span>${c.neurons} neurons + ${c.sources} spike source${c.sources === 1 ? "" : "s"} (inputs and initialisation)</span></dt><dd class="big">${c.neurons + c.sources}</dd>
-    <dt>Synapses<span>${c.excitatory} excitatory · ${c.inhibitory} inhibitory</span></dt><dd class="big">${c.synapses}</dd></dl>`;
   renderNetKinds(); drawNetwork(); netDetails();
   netFit();                        // the structure changed: show the whole network
 }
