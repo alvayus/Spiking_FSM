@@ -80,6 +80,7 @@ const netHidden = new Set();       // hidden neuron kinds
 const NR = 15;                     // neuron radius
 const GAP = 1.5;                   // space between the end of a synapse and the neuron it reaches
 const COLX = { src: 0, op: 160, gate: 330, notst: 500, term: 690, latch: 920, out: 1150 };
+const DL_DX = 110;                 // columns of the delay lines of the inputs (input -> +1 -> +2)
 // parallel: as pipelined, plus the OR gates of the states and a corridor for the bypasses
 const COLP = { src: 0, op: 160, gate: 330, notst: 500, term: 690, or: 900, latch: 1060, out: 1290 };
 const BYPASS_LANE = 8;             // spacing of the bypass lanes (two per state)
@@ -124,19 +125,25 @@ function netLayout(net) {
   });
   const all = Object.values(nodes);
   const place = parallel ? netPlaceParallel : netPlacePipelined;
-  const { X, bands, groups, H, headerCols } = place(net, nodes, all);
+  const dlK = Math.max(0, ...all.filter((n) => n.kind === "delay_line" && n.base && n.base[0] === "src").map((n) => n.k));
+  const shift = dlK * DL_DX;
+  const { X, bands, groups, H, headerCols } = place(net, nodes, all, shift);
   const mid = H / 2;
   const stack = (list, x, dy) => list.forEach((n, k) => Object.assign(n, { x, y: mid + (k - (list.length - 1) / 2) * dy }));
   stack(all.filter((n) => n.src), X.src, 70);
-  // delay lines of the inputs next to them, the others in the column of the delay neuron
+  // delay lines of the inputs on the row of their input (input -> +1 -> +2), one column per
+  // step; the others (OP + 2, ...) under the delay neuron
   for (const n of all) if (n.kind === "delay_line" && n.base && n.base[0] === "src") {
     const b = nodes["s" + n.base[1]];
-    Object.assign(n, { x: X.src + 52 * n.k, y: b.y, major: X.src + 52 * n.k });
+    Object.assign(n, { x: X.src + DL_DX * n.k, y: b.y, major: X.src + DL_DX * n.k });
   }
   stack(all.filter((n) => n.kind === "op"), X.op, 70);
   stack(all.filter((n) => n.kind === "relay"), X.op, 56);
   stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "delay_line" && !(n.base && n.base[0] === "src")),
-    all.filter((n) => n.kind === "not_input"), all.filter((n) => n.kind === "no_event")), X.gate, 56);
+    all.filter((n) => n.kind === "not_input")), X.gate, 56);
+  // "no input spikes now" gates (parallel): in the column of the NOT gates of the states, above
+  // the bands, so that the delay neurons reach them with right angles
+  all.filter((n) => n.kind === "no_event").forEach((n, k, l) => Object.assign(n, { x: X.notst, y: -70 - 64 * (l.length - 1 - k), major: X.notst }));
   stack(all.filter((n) => n.kind === "output"), X.out, 70);
   for (const n of all) {
     if (n.x === undefined) Object.assign(n, { x: X.out, y: mid });
@@ -164,13 +171,17 @@ function netLayout(net) {
   const box = { x0: Math.min(...xs) - 50, y0: Math.min(0, ...ys) - 50, x1: Math.max(...xs) + 90, y1: Math.max(H, ...ys) + 40 };
   const used = (k) => all.some(k);
   const headers = headerCols.filter((h) => used(h[2])).map(([c, text, , dx = 0]) => ({ c, x: X[c] + dx, y: box.y0 + 14, text }));
+  for (let k = 1; k <= dlK; k++) headers.push({ c: "dl" + k, x: X.src + DL_DX * k, y: box.y0 + 14, text: `Inputs +${k}` });
   return { nodes, edges, groups, headers, box };
 }
 
+// every column but the inputs moves right by `shift` (room for the delay lines of the inputs)
+const shifted = (cols, shift) => Object.fromEntries(Object.entries(cols).map(([c, x]) => [c, c === "src" ? x : x + shift]));
+
 // Pipelined: one band per state with its NOT gate, the AND gates of its outgoing
 // transitions and its latch.
-function netPlacePipelined(net, nodes, all) {
-  const X = { ...COLX };
+function netPlacePipelined(net, nodes, all, shift = 0) {
+  const X = shifted(COLX, shift);
   const notStateOf = {};
   for (const n of all) if (n.kind === "not_state") {
     const st = spec.states.find((s) => "NOT " + s.name === n.label);
@@ -203,8 +214,8 @@ function netPlacePipelined(net, nodes, all) {
 // Parallel: as pipelined (NOT gate, AND gates and latch per state), plus the OR gates
 // "entered" / "left" of each state and, between the AND gates and the OR gates, a
 // corridor with two bypass lanes per state.
-function netPlaceParallel(net, nodes, all) {
-  const X = { ...COLP };
+function netPlaceParallel(net, nodes, all, shift = 0) {
+  const X = shifted(COLP, shift);
   const withLanes = spec.states.filter((s) => all.some((n) => n.kind === "term" && n.from === s.id)).length;
   const corridor = 40 + BYPASS_LANE * 2 * withLanes;
   X.or += corridor; X.latch += corridor; X.out += corridor;
@@ -232,8 +243,8 @@ function netPlaceParallel(net, nodes, all) {
   }
   const headerCols = [
     ["src", "Inputs", (n) => n.src], ["op", "OR · input copies", (n) => n.kind === "op"],
-    ["gate", "Delay · NOT inputs · no spikes", (n) => n.kind === "delay" || n.kind === "not_input"],
-    ["notst", "NOT states", (n) => n.kind === "not_state"], ["term", "AND (terms)", (n) => n.kind === "term"],
+    ["gate", "Delay · NOT inputs", (n) => n.kind === "delay" || n.kind === "not_input"],
+    ["notst", "No spikes · NOT states", (n) => n.kind === "not_state"], ["term", "AND (terms)", (n) => n.kind === "term"],
     ["or", "OR (entered · left)", (n) => n.kind === "enter_or" || n.kind === "leave_or"],
     ["latch", "Latches", (n) => n.kind === "latch", LATCH_DX / 2], ["out", "Output", (n) => n.kind === "output"],
   ];
@@ -463,7 +474,8 @@ function netGlyph(n) {
   if (n.kind === "init") return "init";
   if (n.kind === "op") return "OP";
   if (n.kind === "delay") return "Δ";
-  if (n.kind === "delay_line") return "+" + n.k;
+  // the name of a delay line fits inside it when short (no label below, which wires would cross)
+  if (n.kind === "delay_line") return n.label.replace(" ", "").length <= 6 ? n.label.replace(" ", "") : "+" + n.k;
   if (["not_input", "not_state", "no_event"].includes(n.kind)) return "¬";
   if (n.kind === "enter_or" || n.kind === "leave_or") return "∨";
   if (n.kind === "relay") return "=";
@@ -475,7 +487,7 @@ function netLabelLines(n) {
   if (n.kind === "input" && n.label.length > 3) return [n.label];
   if (n.kind === "not_input" || n.kind === "not_state") return [n.label.replace(/^NOT /, "¬")];
   if (n.kind === "delay") return ["delay"];
-  if (n.kind === "delay_line") return [n.label];
+  if (n.kind === "delay_line") return n.label.replace(" ", "").length <= 6 ? [] : [n.label];
   if (["no_event", "enter_or", "leave_or", "relay"].includes(n.kind)) return [n.label];
   if (n.kind === "term") {
     const t = transById(n.tid);
