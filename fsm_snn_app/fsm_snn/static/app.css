@@ -439,7 +439,7 @@ td.share span { min-width: 48px; text-align: right; font-variant-numeric: tabula
 .formula.one { padding: 12px 10px 12px calc(10px + 4.4em); text-indent: -4.4em; line-height: 2.2; font-size: 15px; }
 .formula.one > span { display: inline-block; text-indent: 0; white-space: nowrap; }
 .formula.one .formula-math { font-size: 15px; }
-#tab-energy .panel { width: 460px; }
+#tab-energy .panel { width: 480px; }
 .energy-consts td:first-child { white-space: nowrap; }
 .tbl-wrap { max-height: 360px; overflow: auto; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
