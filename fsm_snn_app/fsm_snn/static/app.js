@@ -11,6 +11,7 @@ function showTab(name) {
   if (name === "network") loadNetwork();
   if (name === "simulate") { renderManualFields(); updateGapMs(); }
   if (name === "simulate" && lastResult) drawRaster();
+  if (name === "energy") loadEnergy();
 }
 
 // ------------------------------------------------------------------ init

@@ -12,6 +12,7 @@ from . import __version__, files
 from .backends import available_backends
 from .builder import ARCHITECTURES, DEFAULT_ARCHITECTURE, INIT_STEP, build
 from .codegen import generate_code
+from .energy import estimate as estimate_energy
 from .pipeline import export_script, request_cancel, run
 from .spec import normalise, notes, template_simple, validate
 
@@ -42,6 +43,15 @@ def api_network(body):
     return dict(ok=True, net=net.to_dict(), counts=net.counts())
 
 
+def api_energy(body):
+    """Energy per spike and Dynap-SE1 resources of every neuron (Energy tab, before a simulation)."""
+    s = normalise(body.get("spec"))
+    errors, _ = validate(s)
+    if errors:
+        return dict(ok=False, errors=errors)
+    return dict(ok=True, **estimate_energy(build(s)))
+
+
 def api_code(body):
     """Readable PyNN code of the network (Network tab)."""
     return generate_code(body.get("spec"), body.get("params"))
@@ -65,6 +75,7 @@ ROUTES = {
     ("POST", "/api/check"): api_check,
     ("POST", "/api/network"): api_network,
     ("POST", "/api/code"): api_code,
+    ("POST", "/api/energy"): api_energy,
     ("POST", "/api/simulate"): api_simulate,
     ("POST", "/api/cancel"): api_cancel,
     ("POST", "/api/script"): api_script,

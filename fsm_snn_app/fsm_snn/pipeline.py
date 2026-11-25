@@ -15,6 +15,7 @@ from . import pynn_runner
 from .analysis import analyse
 from .backends import SpiNNakerUnavailable, simulate
 from .builder import INIT_STEP, build, summary
+from .energy import estimate as estimate_energy
 from .inputs import generate
 from .spec import normalise, validate
 
@@ -124,6 +125,7 @@ def run(spec: dict, params: dict | None = None) -> dict:
                duration=duration, dt=float(p["dt"]), backend=p["backend"], seed=int(p["seed"]), mode=p["mode"],
                events=[[e, sorted(ev)] for e, ev in inp["events"]],
                manual_steps=inp.get("manual_steps", []),
+               energy=estimate_energy(net, spikes, duration, float(p["dt"])),
                **res)
     if p.get("save"):
         out["saved_to"] = save_results(s, p, inp, spikes, out, net)

@@ -396,6 +396,30 @@ pre.code {
 .raster text { font-size: 11px; fill: #334155; }
 .card h3.sub-plot { margin: 26px 0 0; padding-top: 16px; border-top: 1px solid var(--line); }
 .btn.small { padding: 4px 9px; font-size: 12px; }
+/* Energy tab */
+.energy-out { max-width: 980px; }
+.energy-go { margin-top: 10px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.kpi { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); }
+.kpi-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi-label { font-size: 12px; font-weight: 600; color: var(--ink); }
+.kpi-sub { font-size: 11px; color: var(--muted); }
+.ebar { display: flex; gap: 2px; height: 18px; margin: 6px 0 10px; }
+.ebar-seg { min-width: 3px; }
+.ebar-seg:first-child { border-radius: 4px 0 0 4px; }
+.ebar-seg:last-child { border-radius: 0 4px 4px 0; }
+.ebar-seg:only-child { border-radius: 4px; }
+.elegend { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 16px; font-size: 12px; }
+.elegend-item { display: flex; gap: 8px; align-items: flex-start; }
+.elegend .sw { flex: none; width: 12px; height: 12px; margin-top: 2px; border-radius: 3px; }
+.elegend-val { color: var(--ink); font-variant-numeric: tabular-nums; }
+td.share { display: flex; align-items: center; gap: 8px; min-width: 160px; }
+td.share span { min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.meter { flex: 1; height: 8px; border-radius: 4px; background: #eef1f4; overflow: hidden; }
+.meter > div { height: 100%; border-radius: 0 4px 4px 0; background: #2a78d6; }
+.tbl .dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 1px solid; border-radius: 50%; vertical-align: -1px; }
+.formula { margin: 8px 0; padding: 8px 10px; border-radius: 7px; background: var(--soft); font-size: 12.5px; line-height: 1.7; white-space: nowrap; overflow-x: auto; }
+.energy-consts td:first-child { white-space: nowrap; }
 .tbl-wrap { max-height: 360px; overflow: auto; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.tbl th, table.tbl td { padding: 5px 8px; border-bottom: 1px solid #eef1f4; text-align: left; }

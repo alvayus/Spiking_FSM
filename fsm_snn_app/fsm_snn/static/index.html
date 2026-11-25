@@ -22,6 +22,7 @@
     <button class="tab active" data-tab="design" role="tab"><span class="num">1</span>Design</button>
     <button class="tab" data-tab="network" role="tab"><span class="num">2</span>Network</button>
     <button class="tab" data-tab="simulate" role="tab"><span class="num">3</span>Simulate</button>
+    <button class="tab" data-tab="energy" role="tab"><span class="num">4</span>Energy</button>
   </nav>
   <div class="topbar-end"></div>
 </header>
@@ -264,6 +265,28 @@
     </div>
   </section>
 
+  <!-- ======================= ENERGY ======================= -->
+  <section id="tab-energy" class="tabpane">
+    <div class="results"><div id="energyOut" class="energy-out"></div></div>
+    <aside class="panel">
+      <div class="card">
+        <h3>How it is estimated</h3>
+        <p class="note">Dynamic power of the network on the mixed-signal neuromorphic processor DYNAP-SE (Dynap-SE1), with the formula used for the spiking ALU (Ayuso-Martinez et al., 2025), from Risi (2022):</p>
+        <div class="formula">P = Σ<sub>n</sub> r<sub>n</sub> [ E<sub>spike</sub> + E<sub>en</sub><br>&emsp;&emsp;+ N<sub>cores</sub> (E<sub>br</sub> + E<sub>rt</sub>) + N<sub>cam-match</sub> E<sub>pulse</sub> ]</div>
+        <p class="note"><i>r<sub>n</sub></i>: firing rate of neuron <i>n</i>. <i>N<sub>cores</sub></i>: cores that receive its spikes. <i>N<sub>cam-match</sub></i>: synapses that receive them. Over a simulation, the energy is the same sum with the number of spikes of each neuron instead of its rate.</p>
+        <table class="tbl energy-consts"><thead><tr><th>Energy</th><th>Event</th><th class="num">pJ</th></tr></thead><tbody>
+          <tr><td>E<sub>spike</sub></td><td>Generation of a spike</td><td class="num">883</td></tr>
+          <tr><td>E<sub>en</sub></td><td>Encoding of the spike and its destinations</td><td class="num">883</td></tr>
+          <tr><td>E<sub>br</sub></td><td>Broadcast to a target core</td><td class="num">6840</td></tr>
+          <tr><td>E<sub>rt</sub></td><td>Routing to a target core</td><td class="num">360</td></tr>
+          <tr><td>E<sub>pulse</sub></td><td>Pulse extension at each synapse</td><td class="num">324</td></tr>
+        </tbody></table>
+        <p class="note">Values measured by Moradi et al. (2018). A neuron with one synapse to a neuron of its own core takes 9.29 nJ per spike.</p>
+        <p class="note">Only the dynamic energy of the spikes of the neurons is counted. The spike generators (inputs and initialisation), which are outside the chip, and its static power are left out, as in that work. The neurons are placed on the cores in order (256 per core), so small networks use a single core.</p>
+      </div>
+    </aside>
+  </section>
+
 </main>
 
 <div class="modal" id="codeModal" hidden>
@@ -303,6 +326,7 @@
 <script src="static/editor.js"></script>
 <script src="static/network.js"></script>
 <script src="static/simulate.js"></script>
+<script src="static/energy.js"></script>
 <script src="static/app.js"></script>
 </body>
 </html>
