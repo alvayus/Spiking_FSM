@@ -22,7 +22,7 @@
     <button class="tab active" data-tab="design" role="tab"><span class="num">1</span>Design</button>
     <button class="tab" data-tab="network" role="tab"><span class="num">2</span>Network</button>
     <button class="tab" data-tab="simulate" role="tab"><span class="num">3</span>Simulate</button>
-    <button class="tab" data-tab="energy" role="tab" title="Theoretical energy and power consumed by the spikes of the network"><span class="num">4</span>Power</button>
+    <button class="tab" data-tab="energy" role="tab" title="Estimated energy and power of a possible implementation of the network on Dynap-SE"><span class="num">4</span><span class="tab-label">Power analysis</span></button>
   </nav>
   <div class="topbar-end"></div>
 </header>
@@ -272,7 +272,8 @@
     <aside class="panel">
       <div class="card">
         <h3>How it is estimated</h3>
-        <p class="note">Theoretical dynamic power of the network, with the energy model used for the spiking ALU (Ayuso-Martinez et al., 2025), from Risi (2022):</p>
+        <p class="note">The formula comes from works that implement spiking networks on the <b>Dynap-SE</b> neuromorphic platform: the energy model of Risi (2022), used for the spiking ALU (Ayuso-Martinez et al., 2025).</p>
+        <p class="note">Previous works showed that spiking logic gates with this same architecture can be implemented on Dynap-SE, with other neuron parameters that make the neurons behave as Boolean gates. So, although the design is simulated here with the Ideal simulator or SpiNNaker, the formula estimates the theoretical dynamic power of a possible implementation of it on Dynap-SE:</p>
         <div class="formula one"><span><math class="formula-math"><mrow><mi>P</mi><mo>=</mo><munder><mo movablelimits="false">∑</mo><mi>n</mi></munder><msub><mi>r</mi><mi>n</mi></msub><mo>&#x2062;</mo><mo stretchy="false">[</mo><msub><mi>E</mi><mtext>spike</mtext></msub><mo>+</mo><msub><mi>E</mi><mtext>en</mtext></msub></mrow></math></span><span class="cont"><math class="formula-math"><mrow><mo>+</mo><msub><mi>N</mi><mtext>cores</mtext></msub><mo>&#x2062;</mo><mo stretchy="false">(</mo><msub><mi>E</mi><mtext>br</mtext></msub><mo>+</mo><msub><mi>E</mi><mtext>rt</mtext></msub><mo stretchy="false">)</mo><mo>+</mo><msub><mi>N</mi><mtext>cam-match</mtext></msub><mo>&#x2062;</mo><msub><mi>E</mi><mtext>pulse</mtext></msub><mo stretchy="false">]</mo></mrow></math></span></div>
         <p class="note"><i>r<sub>n</sub></i>: firing rate of neuron <i>n</i>. <i>E<sub>n</sub></i>: the term in brackets, the energy of each of its spikes. <i>N<sub>cam-match</sub></i>: synapses that receive its spikes. <i>N<sub>cores</sub></i> = 1 for a neuron with output synapses (its spikes are broadcast and routed once) and 0 otherwise.</p>
         <p class="note">Over a simulation, with <i>k<sub>n</sub></i> spikes of neuron <i>n</i>, the energy is</p>
@@ -285,8 +286,8 @@
           <tr><td>E<sub>rt</sub></td><td>Routing of the spike</td><td class="num">360</td></tr>
           <tr><td>E<sub>pulse</sub></td><td>Pulse extension at each synapse</td><td class="num">324</td></tr>
         </tbody></table>
-        <p class="note">Values from Moradi et al. (2018). A neuron with one output synapse takes 9.29 nJ per spike.</p>
-        <p class="note">The estimate only uses the spikes of the neurons, so it is the same whichever simulator produced them. Only their dynamic energy is counted: the spike generators (inputs and initialisation) and the static power are left out, as in that work.</p>
+        <p class="note">Values measured on Dynap-SE by Moradi et al. (2018). A neuron with one output synapse takes 9.29 nJ per spike.</p>
+        <p class="note">The estimate only uses the spikes of the neurons, so it is the same whichever simulator produced them, assuming that the Dynap-SE implementation spikes the same way. Only their dynamic energy is counted: the spike generators (inputs and initialisation) and the static power are left out, as in that work.</p>
       </div>
     </aside>
   </section>
