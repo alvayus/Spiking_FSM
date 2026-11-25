@@ -19,7 +19,7 @@ import re
 from .analysis import _expected_state_steps
 from .builder import INIT_STEP, build
 from .reference import run_reference
-from .pynn_runner import DEFAULT_NEURON_PARAMS, DEFAULT_WEIGHTS
+from .pynn_runner import DEFAULT_WEIGHTS, neuron_params_for, time_scale_factor
 from .spec import normalise, option_to_text, validate
 
 
@@ -211,8 +211,10 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     wts = dict(DEFAULT_WEIGHTS)
     wts.update(p.get("weights") or {})
     w(f"W_EXC, W_INH = {wts['exc']}, {wts['inh']}       # synaptic weights (nA)")
-    nparams = dict(DEFAULT_NEURON_PARAMS)
-    nparams.update(p.get("neuron_params") or {})
+    nparams = neuron_params_for(float(p["dt"]), p.get("neuron_params"))
+    if float(p["dt"]) != 1.0:
+        w(f"# Table 1 (for 1 ms) with its time constants and capacitance scaled by DT, so that")
+        w(f"# the neurons behave the same, counted in time steps")
     w("NEURON_PARAMS = {")
     for k, v in nparams.items():
         w(f"    {k!r}: {v},")
@@ -220,7 +222,9 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     last = max([e for e, _ in inp["events"]] + [INIT_STEP])
     w(f"DURATION = {last + 30}                     # simulated time steps")
     w("")
-    w("sim.setup(timestep=DT, min_delay=DT)")
+    tsf = time_scale_factor(float(p["dt"]))
+    w("sim.setup(timestep=DT, min_delay=DT" + (f", time_scale_factor={tsf})   # below 1 ms: {tsf} times slower than real time"
+                                              if tsf > 1 else ")"))
     w("cell = sim.IF_curr_exp(**NEURON_PARAMS)")
     w("")
     w("")

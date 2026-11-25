@@ -12,7 +12,7 @@ from . import __version__, files
 from .backends import available_backends
 from .builder import ARCHITECTURES, DEFAULT_ARCHITECTURE, INIT_STEP, build
 from .codegen import generate_code
-from .pipeline import export_script, run
+from .pipeline import export_script, request_cancel, run
 from .spec import normalise, notes, template_simple, validate
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -51,6 +51,11 @@ def api_simulate(body):
     return run(body.get("spec"), body.get("params"))
 
 
+def api_cancel(body):
+    """Cancel a running simulation (it stops at its next safe point)."""
+    return request_cancel(body.get("job"))
+
+
 def api_script(body):
     return export_script(body.get("spec"), body.get("params"))
 
@@ -61,6 +66,7 @@ ROUTES = {
     ("POST", "/api/network"): api_network,
     ("POST", "/api/code"): api_code,
     ("POST", "/api/simulate"): api_simulate,
+    ("POST", "/api/cancel"): api_cancel,
     ("POST", "/api/script"): api_script,
     ("POST", "/api/fs/list"): files.api_list,
     ("POST", "/api/fs/read"): files.api_read,

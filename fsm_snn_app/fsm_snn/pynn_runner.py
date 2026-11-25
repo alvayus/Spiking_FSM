@@ -22,6 +22,35 @@ DEFAULT_NEURON_PARAMS = {
 # of the repository if they differ.
 DEFAULT_WEIGHTS = {"exc": 1.0, "inh": 1.0}
 
+# Table 1 is for a time step of 1 ms. The gates rely on the neurons forgetting their
+# input within one step (tau = 0.1 ms << 1 ms), so with another time step the time
+# constants (and the capacitance, which keeps R = tau_m / cm) are scaled by it: the
+# dynamics, counted in time steps, are then the same for any time step.
+SCALED_WITH_DT = ("cm", "tau_m", "tau_refrac", "tau_syn_E", "tau_syn_I")
+
+
+def neuron_params_for(dt, neuron_params=None):
+    """Neuron parameters for a time step ``dt`` (ms): Table 1 scaled by dt, then any
+    parameter given explicitly in ``neuron_params`` (used as given)."""
+    params = {k: (v * dt if k in SCALED_WITH_DT else v) for k, v in DEFAULT_NEURON_PARAMS.items()}
+    params.update(neuron_params or {})
+    return params
+
+
+def time_scale_factor(dt):
+    """SpiNNaker cannot tick faster than 1 ms of wall-clock time: below 1 ms the
+    simulation runs that many times slower than real time."""
+    import math
+    return max(1, math.ceil(1.0 / dt - 1e-9))
+
+
+class SimulationCancelled(Exception):
+    """The user cancelled the simulation; the simulator was closed cleanly."""
+
+
+# Long simulations run in pieces, so that a cancellation takes effect between them.
+RUN_CHUNK_STEPS = 2000
+
 BACKEND_MODULES = {
     "spinnaker": "pyNN.spiNNaker",
 }
@@ -33,14 +62,21 @@ def import_backend(backend):
 
 
 def run_pynn(netlist, trains, backend="spinnaker", dt=1.0, duration_steps=None,
-             neuron_params=None, weights=None):
+             neuron_params=None, weights=None, should_stop=None):
     """Simulate ``netlist`` (dict form, see Netlist.to_dict) with PyNN.
 
     ``trains``: {input name: [steps]}.  Returns {neuron index: [steps]}.
+    ``should_stop``: called at safe points (before the setup, before the run,
+    between pieces of the run and before reading the recordings); when it returns
+    True the simulator is closed with ``sim.end()`` and SimulationCancelled is
+    raised. The simulator is never killed: loading the network on the board, which
+    happens inside the first ``sim.run``, cannot be interrupted.
     """
+    stop = should_stop or (lambda: False)
+    if stop():
+        raise SimulationCancelled()
     sim = import_backend(backend)
-    params = dict(DEFAULT_NEURON_PARAMS)
-    params.update(neuron_params or {})
+    params = neuron_params_for(dt, neuron_params)
     w = dict(DEFAULT_WEIGHTS)
     w.update(weights or {})
 
@@ -55,7 +91,7 @@ def run_pynn(netlist, trains, backend="spinnaker", dt=1.0, duration_steps=None,
 
     # The network itself is deterministic: randomness only enters through the
     # input spike trains, which are generated (with a seed) before this call.
-    sim.setup(timestep=dt, min_delay=dt)
+    sim.setup(timestep=dt, min_delay=dt, time_scale_factor=time_scale_factor(dt))
     try:
         # Spike sources: one per input plus the initialisation source.
         spike_times = []
@@ -83,7 +119,15 @@ def run_pynn(netlist, trains, backend="spinnaker", dt=1.0, duration_steps=None,
                            synapse_type=sim.StaticSynapse(),
                            receptor_type="excitatory" if receptor == "exc" else "inhibitory")
 
-        sim.run(float(duration_steps) * dt)
+        if stop():
+            raise SimulationCancelled()
+        done = 0
+        while done < duration_steps:
+            n = min(RUN_CHUNK_STEPS, duration_steps - done)
+            sim.run(float(n) * dt)
+            done += n
+            if stop():
+                raise SimulationCancelled()
         data = pop.get_data("spikes")
         spikes = {}
         for k, train in enumerate(data.segments[0].spiketrains):

@@ -11,11 +11,23 @@ import random
 import re
 import time
 
+from . import pynn_runner
 from .analysis import analyse
 from .backends import SpiNNakerUnavailable, simulate
 from .builder import INIT_STEP, build, summary
 from .inputs import generate
 from .spec import normalise, validate
+
+# Simulations the user asked to cancel (job ids sent by the page with the parameters).
+CANCELLED = set()
+
+
+def request_cancel(job) -> dict:
+    """Ask the simulation ``job`` to stop at its next safe point (see run_pynn)."""
+    if job:
+        CANCELLED.add(str(job))
+    return dict(ok=True)
+
 
 RESULTS_DIR = os.environ.get("FSM_SNN_RESULTS", os.path.join(os.getcwd(), "results"))
 
@@ -58,16 +70,21 @@ def run(spec: dict, params: dict | None = None) -> dict:
     last = max([e for e, _ in inp["events"]] + [INIT_STEP])
     duration = last + 30
     t0 = time.time()
+    job = str(p.get("job") or "")
     try:
         spikes = simulate(net, inp["trains"], backend=p["backend"], dt=float(p["dt"]),
                           duration_steps=duration, neuron_params=p["neuron_params"],
-                          weights=p["weights"])
+                          weights=p["weights"], should_stop=lambda: bool(job) and job in CANCELLED)
+    except pynn_runner.SimulationCancelled:
+        return dict(ok=False, cancelled=True, errors=["Simulation cancelled."])
     except SpiNNakerUnavailable as e:
         return dict(ok=False, errors=[str(e)])
     except Exception as e:                    # noqa: BLE001 - report simulator failures to the UI
         msg = str(e).splitlines()[0] if str(e) else ""
         return dict(ok=False, errors=[f"The {p['backend']} simulation failed: {type(e).__name__}"
                                       + (f": {msg}" if msg else "")])
+    finally:
+        CANCELLED.discard(job)
     elapsed = time.time() - t0
     res = analyse(s, net, spikes, inp["events"], inp["trains"], duration, dt=float(p["dt"]))
     res["metrics"]["wall_time_s"] = round(elapsed, 3)

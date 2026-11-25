@@ -206,7 +206,7 @@
       <details class="card">
         <summary>Advanced parameters</summary>
         <label class="field">Simulation time step <span class="unit">ms</span><input id="dt" type="number" min="0.01" step="0.1" value="1"></label>
-        <p class="note">Duration of one step <i>t</i>: synaptic delays and input spikes are multiples of it. The Ideal simulator accepts any value. SpiNNaker accepts any whole number of microseconds; below 1 ms it runs slower than real time.</p>
+        <p class="note">Duration of one step <i>t</i>: every synaptic delay is one step and input spikes are multiples of it. The neuron time constants of Table 1 (for 1 ms) are scaled with it, so the network behaves the same with any step. The Ideal simulator accepts any value. SpiNNaker accepts any whole number of microseconds; below 1 ms it runs slower than real time.</p>
       </details>
       <div class="sticky-actions">
         <button id="btnSimulate" class="btn primary big">▶ Simulate</button>
@@ -290,7 +290,8 @@
     </div>
   </div>
 </div>
-<div class="busy" id="busy" hidden><div class="spinner"></div><div id="busyText">Simulating…</div></div>
+<div class="busy" id="busy" hidden><div class="spinner"></div><div id="busyText">Simulating…</div>
+  <button class="btn" id="busyCancel" hidden title="Stops the simulation at its next safe point, closing SpiNNaker cleanly">Cancel</button></div>
 <div class="toast" id="toast" hidden></div>
 <script src="static/util.js"></script>
 <script src="static/expr.js"></script>
