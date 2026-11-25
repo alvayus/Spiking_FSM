@@ -13,7 +13,7 @@ function renderBackends() {
   $("#backendList").innerHTML = info.backends.map((b) => `<label class="${b.available ? "" : "disabled"}">
     <input type="radio" name="backend" value="${b.id}" ${b.available ? "" : "disabled"} ${b.id === sim.backend ? "checked" : ""}>
     <span>${esc(b.label)}${b.desc ? `<small>${esc(b.desc)}</small>` : ""}${b.available ? "" : `<small class="why">${esc(b.reason)}</small>`}</span></label>`).join("");
-  $$("input[name=backend]").forEach((r) => r.addEventListener("change", () => { sim.backend = r.value; store("fsm_snn_backend", r.value); }));
+  $$("input[name=backend]").forEach((r) => r.addEventListener("change", () => { sim.backend = r.value; store("fsm_snn_backend", r.value); updateTsfNote(); }));
 }
 function renderManualFields() {
   const old = {};
@@ -32,7 +32,12 @@ const roundSteps = (x) => { const r = Math.round(x); return Math.abs(x % 1) === 
 // "5 to 15 steps" is also shown in ms for the current time step
 // smallest time scale factor SpiNNaker supports for the time step (pynn_runner.time_scale_factor)
 const minTsf = (dt) => Math.max(1, Math.ceil(1 / dt - 1e-9));
+// the time scale factor only applies to SpiNNaker: the field is disabled for the other simulators
 function updateTsfNote() {
+  const spinn = sim.backend !== "ideal";
+  $("#tsf").disabled = !spinn;
+  $("#tsfField").classList.toggle("disabled", !spinn);
+  if (!spinn) { $("#tsfNote").innerHTML = " Only for SpiNNaker."; return; }
   const need = minTsf(curDt()), v = parseInt($("#tsf").value, 10);
   $("#tsfNote").innerHTML = v >= 1 && v < need
     ? ` <b class="warn-text">With a ${msText(curDt())} ms step SpiNNaker needs a factor of at least ${need}.</b>`
@@ -85,10 +90,10 @@ function collectParams() {
     backend: sim.backend, dt: parseFloat($("#dt").value) > 0 ? parseFloat($("#dt").value) : 1, mode: sim.mode,
     n_events: +$("#nEvents").value, min_gap: Math.max(1, Math.round(+$("#minGap").value)), max_gap: Math.max(1, Math.round(+$("#minGap").value), Math.round(+$("#maxGap").value)),
     p_input: +$("#pInput").value, manual,
-    time_scale_factor: parseInt($("#tsf").value, 10) >= 1 ? parseInt($("#tsf").value, 10) : null,
+    time_scale_factor: sim.backend !== "ideal" && parseInt($("#tsf").value, 10) >= 1 ? parseInt($("#tsf").value, 10) : null,
   };
   store("fsm_snn_sim", { n_events: p.n_events, min_gap: p.min_gap, max_gap: p.max_gap, p_input: p.p_input, mode: p.mode, dt: p.dt,
-    tsf: p.time_scale_factor });
+    tsf: parseInt($("#tsf").value, 10) || null });   // the field, also while it is disabled
   return p;
 }
 function restoreSimFields() {
@@ -96,7 +101,7 @@ function restoreSimFields() {
   $("#nEvents").value = s.n_events; $("#minGap").value = s.min_gap; $("#maxGap").value = s.max_gap;
   $("#pInput").value = s.p_input;
   if (s.dt > 0) $("#dt").value = s.dt;
-  if (s.tsf >= 1) $("#tsf").value = s.tsf;
+  if (s.tsf >= 1) $("#tsf").value = s.tsf;   // kept while another simulator is chosen
   setMode(["manual", "mixed"].includes(s.mode) ? s.mode : "random");
 }
 function setMode(m) {

@@ -207,7 +207,7 @@
         <summary>Advanced parameters</summary>
         <label class="field">Simulation time step <span class="unit">ms</span><input id="dt" type="number" min="0.01" step="0.1" value="1"></label>
         <p class="note">Duration of one step <i>t</i>: every synaptic delay is one step and input spikes are multiples of it. The neuron time constants of Table 1 (for 1 ms) are scaled with it, so the network behaves the same with any step. The Ideal simulator accepts any value. SpiNNaker accepts any whole number of microseconds; below 1 ms it runs slower than real time.</p>
-        <label class="field">SpiNNaker time scale factor <input id="tsf" type="number" min="1" step="1" placeholder="automatic"></label>
+        <label class="field" id="tsfField">SpiNNaker time scale factor <input id="tsf" type="number" min="1" step="1" placeholder="automatic"></label>
         <p class="note">SpiNNaker runs this many times slower than real time (one time step lasts step × factor of wall-clock time). Empty: automatic, the smallest factor that SpiNNaker supports (1 for steps of 1 ms or more, ⌈1 ms / step⌉ below). A larger factor gives the board more time for each step.<span id="tsfNote"></span></p>
       </details>
       <div class="sticky-actions">
