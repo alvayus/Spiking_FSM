@@ -1,13 +1,14 @@
-/* Energy tab: dynamic energy of the network on DYNAP-SE (Dynap-SE1), estimated from the
- * spikes of the last simulation as in the spiking ALU work (fsm_snn/energy.py). */
+/* Energy tab: theoretical dynamic energy of the network, estimated from the spikes of the
+ * last simulation with the energy model of the spiking ALU work (fsm_snn/energy.py). It
+ * depends only on the spikes, not on the simulator that produced them. */
 "use strict";
 
-let energyStatic = null;           // /api/energy for the current network (energy per spike, resources)
+let energyStatic = null;           // /api/energy for the current network (energy per spike of each neuron)
 let energyKey = null;
 // the three kinds of events of the formula (fixed order: generation, communication, pulses)
 const ENERGY_PARTS = [
   { key: "generation", name: "Spike generation and encoding", terms: "E<sub>spike</sub> + E<sub>en</sub>", color: "#2a78d6" },
-  { key: "communication", name: "Broadcast and routing", terms: "N<sub>cores</sub> (E<sub>br</sub> + E<sub>rt</sub>)", color: "#eb6834" },
+  { key: "communication", name: "Broadcast and routing", terms: "E<sub>br</sub> + E<sub>rt</sub>", color: "#eb6834" },
   { key: "pulses", name: "Pulse extension", terms: "N<sub>cam-match</sub> E<sub>pulse</sub>", color: "#1baf7a" },
 ];
 
@@ -54,27 +55,26 @@ function renderEnergy() {
   const rows = (fresh ? r.energy.neurons : st.neurons).slice();
   rows.sort(fresh ? (a, b) => b.energy - a.energy || a.idx - b.idx : (a, b) => b.per_spike - a.per_spike || a.idx - b.idx);
   $("#energyOut").innerHTML = (run ? energyRunCard(r, run) + energyPartsCard(run, rows) : energyNoRun(r))
-    + energyNeuronsCard(rows, !!run) + energyResourcesCard(st);
+    + energyNeuronsCard(rows, !!run);
 }
 
 function energyNoRun(r) {
   const why = r ? "The machine or the implementation has changed since the last simulation." : "There is no simulation yet.";
   return `<div class="card"><h3>Energy of a simulation</h3>
-    <div class="msg info">${why} Simulate it to estimate the energy that its spikes would take on Dynap-SE1. Below, the energy that each neuron takes per spike.</div>
+    <div class="msg info">${why} Simulate it to estimate the energy of its spikes. Below, the energy that each neuron takes per spike.</div>
     <button class="btn primary energy-go" onclick="showTab('simulate')">Go to Simulate</button></div>`;
 }
 
 function energyRunCard(r, run) {
-  const sim = (info.backends.find((b) => b.id === r.backend) || {}).label || r.backend;
   const tile = (value, label, sub) => `<div class="kpi"><div class="kpi-value">${value}</div><div class="kpi-label">${label}</div>${sub ? `<div class="kpi-sub">${sub}</div>` : ""}</div>`;
   return `<div class="card"><h3>Last simulation</h3>
     <div class="kpis">
       ${tile(fmtEnergy(run.energy_pj), "Dynamic energy", "of all the neuron spikes")}
-      ${tile(fmtPower(run.power_w), "Mean power", "in real time")}
-      ${tile(fmtInt(run.spikes), "Neuron spikes", `${run.spikes && run.time_ms ? +(run.spikes / energyStatic.resources.neurons / (run.time_ms / 1000)).toPrecision(3) : 0} Hz per neuron on average`)}
+      ${tile(fmtPower(run.power_w), "Mean power", "energy over the simulated time")}
+      ${tile(fmtInt(run.spikes), "Neuron spikes", `${run.spikes && run.time_ms ? +(run.spikes / energyStatic.neurons.length / (run.time_ms / 1000)).toPrecision(3) : 0} Hz per neuron on average`)}
       ${tile(`${msText(run.time_ms)} ms`, "Simulated time", `${fmtInt(r.duration)} steps of ${msText(run.dt)} ms`)}
     </div>
-    <p class="note">${esc(sim)} simulator, ${r.events.length} time steps with input spikes. Dynap-SE1 runs in real time, so the mean power is the energy over the simulated time. The spike generators (inputs and initialisation) and the static power of the chip are not included.</p></div>`;
+    <p class="note">${r.events.length} time steps with input spikes. The estimate depends only on the spikes of the neurons, not on the simulator. The spike generators (inputs and initialisation) and the static power are not included.</p></div>`;
 }
 
 function energyPartsCard(run, rows) {
@@ -104,30 +104,14 @@ function energyPartsCard(run, rows) {
 }
 
 function energyNeuronsCard(rows, withRun) {
-  const lim = energyStatic.limits;
-  const body = rows.map((x) => `<tr${x.fan_in > lim.cam_per_neuron ? ' class="bad"' : ""}>
+  const body = rows.map((x) => `<tr>
     <td>${kindDot(x.kind)}${esc(energyName(x))}</td>
-    <td class="num">${x.fan_in}</td><td class="num">${x.fan_out}</td><td class="num">${x.cores}</td>
+    <td class="num">${x.fan_in}</td><td class="num">${x.fan_out}</td>
     <td class="num">${fmtEnergy(x.per_spike)}</td>
     ${withRun ? `<td class="num">${fmtInt(x.spikes)}</td><td class="num">${fmtEnergy(x.energy)}</td>` : ""}</tr>`).join("");
   return `<details class="card"${withRun ? "" : " open"}><summary>Per neuron</summary>
-    <p class="note">Input synapses (CAM entries, at most ${lim.cam_per_neuron} on Dynap-SE1), output synapses (N<sub>cam-match</sub>) and target cores (N<sub>cores</sub>) of each neuron, and the energy of each of its spikes.${withRun ? " Sorted by energy." : ""}</p>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Neuron</th><th class="num">Synapses in</th><th class="num">Synapses out</th><th class="num">Target cores</th><th class="num">Per spike</th>
+    <p class="note">Input and output synapses (N<sub>cam-match</sub>) of each neuron, and the energy of each of its spikes.${withRun ? " Sorted by energy." : ""}</p>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Neuron</th><th class="num">Synapses in</th><th class="num">Synapses out</th><th class="num">Per spike</th>
     ${withRun ? '<th class="num">Spikes</th><th class="num">Energy</th>' : ""}</tr></thead><tbody>${body}</tbody></table></div></details>`;
 }
 
-function energyResourcesCard(st) {
-  const res = st.resources, lim = st.limits;
-  const row = (k, v, sub) => `<tr><td>${k}</td><td class="num">${v}</td><td class="muted">${sub}</td></tr>`;
-  const cam = res.over_cam.length
-    ? `<div class="msg warn">${res.over_cam.length} neuron${res.over_cam.length === 1 ? " has" : "s have"} more than ${lim.cam_per_neuron} input synapses: ${esc(res.over_cam.slice(0, 6).map((i) => energyName(st.neurons[i])).join(", "))}${res.over_cam.length > 6 ? "…" : ""}.</div>` : "";
-  const board = res.fits_board ? "" : `<div class="msg warn">The network needs more than the ${lim.chips_per_board * lim.cores_per_chip} cores of one board.</div>`;
-  return `<div class="card"><h3>Resources on Dynap-SE1</h3>
-    <table class="tbl"><tbody>
-      ${row("Neurons", fmtInt(res.neurons), "spike sources not included")}
-      ${row("Cores", res.cores, `${lim.neurons_per_core} neurons per core; neurons placed in order`)}
-      ${row("Chips", res.chips, `${lim.cores_per_chip} cores per chip, ${lim.chips_per_board} chips per board`)}
-      ${row("Synapses", fmtInt(res.synapses), "including those from the spike sources")}
-      ${row("Largest fan-in", res.max_fan_in, `at most ${lim.cam_per_neuron} input synapses (CAM entries) per neuron`)}
-    </tbody></table>${cam}${board}</div>`;
-}
