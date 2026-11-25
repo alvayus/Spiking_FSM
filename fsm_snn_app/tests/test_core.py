@@ -54,8 +54,9 @@ def test_min_gap_events_back_to_back():
 def test_counts_paper_simple():
     c = summary(dict(S.template_simple(), architecture="pipelined"))
     assert c["states"] == 3 and c["neurons"] > 0
-    # 3 latches (9) + OP + delay + NOT SGf + NOT SGb + 3 NOT states + 4 terms
-    assert c["neurons"] == 9 + 1 + 1 + 2 + 3 + 4
+    # 3 latches (9) + OP + delay + NOT SGf + NOT SGb + 3 NOT states + 4 terms + delay lines SGf +1, SGb +1
+    assert c["neurons"] == 9 + 1 + 1 + 2 + 3 + 4 + 2
+    assert c["max_delay"] == 1
     # parallel (synchronous): clock (2) + OP + delay + NOT SGf + NOT SGb + 4 terms + 3 hold
     # + 3 enter + 3 "no transition" (one per neuron of the source state, 1 each) + 3 leave
     # + "no stay" copies (one per neuron of the state: S0 1+1, S1 1+2, S2 1+1)

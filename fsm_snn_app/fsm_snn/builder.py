@@ -68,8 +68,11 @@ Two implementations (``spec["architecture"]``):
   terms into its source state that can fire together (found by exploring the
   sets of states that can be active at the same time).
 
-All synaptic delays are chosen automatically so that every signal arrives at
-the step required above.
+Every synapse has a delay of one time step (some platforms do not implement
+longer delays). Where a signal has to arrive later, it goes through a delay line:
+relay neurons that each repeat the spikes one step later, as in the manuscript.
+A delay line belongs to the neuron (or input) it repeats and is shared by all
+the synapses that need it; the delay neuron of the AND gates is OP + 1.
 """
 
 from __future__ import annotations
@@ -183,7 +186,48 @@ def build(spec: dict) -> Netlist:
     for name in s["inputs"]:
         net.connect(("src", net.input_sources[name]), net.op, "exc", T_OP)
     (_build_parallel if arch == "parallel" else _build_pipelined)(s, net)
+    _unit_delays(net)
     return net
+
+
+def _unit_delays(net):
+    """Replace every synapse longer than one step by a delay line of relay neurons
+    (pre -> +1 -> +2 -> ...) and a one-step synapse from its last neuron."""
+    taps = {}                                   # (pre ref, k) -> neuron that repeats pre k steps later
+    incoming = {}
+    for pre, post, rec, d, w in net.conns:
+        incoming.setdefault(post, []).append((pre, rec, d))
+    for i, n in enumerate(net.neurons):         # an existing pure relay of pre (the delay neuron: OP + 1)
+        if n["kind"] == "delay" and len(incoming.get(i, [])) == 1:
+            pre, rec, d = incoming[i][0]
+            if rec == "exc" and d == 1:
+                taps[(tuple(pre), 1)] = i
+
+    def label(pre):
+        return net.sources[pre[1]]["label"] if pre[0] == "src" else net.neurons[pre[1]]["label"]
+
+    def tap(pre, k):
+        if k == 0:
+            return pre
+        key = (pre, k)
+        if key not in taps:
+            prev = tap(pre, k - 1)
+            n = net.add_neuron(f"{label(pre)} +{k}", "delay_line", base=list(pre), k=k)
+            net.conns.append((tuple(prev) if isinstance(prev, tuple) else ("n", prev), n, "exc", 1, 1))
+            taps[key] = n
+        return ("n", taps[key])
+
+    conns, net.conns = net.conns, []
+    for pre, post, rec, d, w in conns:
+        if d > 1:
+            pre = tap(tuple(pre), d - 1)
+        net.conns.append((tuple(pre), post, rec, 1, w))
+    # the delay lines were appended to net.conns while rewriting; keep them
+    seen = set()
+    for c in net.conns:
+        key = (c[0], c[1], c[2])
+        assert key not in seen, f"duplicate synapse {key}"
+        seen.add(key)
 
 
 def _input_gates(s, net, trans, t_gate):

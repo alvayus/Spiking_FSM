@@ -72,6 +72,9 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         kind, label = n["kind"], n["label"]
         if kind == "op":
             var, com = unique("OP"), "input-driven OR of every input (operation signal)"
+        elif kind == "delay_line":
+            var = unique("delay_" + label.replace(" +", "_plus"))
+            com = f"delay line: {label.rsplit(' +', 1)[0]} repeated {n['k']} step{'s' if n['k'] > 1 else ''} later"
         elif kind == "delay":
             var, com = unique("delay"), "delay neuron shared by the AND gates"
         elif kind == "not_input":
@@ -125,6 +128,8 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
                                                   else "OP of input spikes now inhibits it")
         if qk in ("enter_or", "leave_or"):
             return "OR gates of the states (bypasses)", f"{pn} fired"
+        if qk == "delay_line":
+            return "Delay lines", f"{pn} -> {qn} (one step later)"
         if qk == "delay":
             return "NOT gates and delay neuron", "OP -> delay"
         if qk in ("not_input", "not_state"):
@@ -182,7 +187,8 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     w("")
     w("Every state is a latch of three neurons: index 0 is the set neuron (N1) and")
     w("indices 1 and 2 are the ring neurons (N2, N3), which keep spiking while the state")
-    w("is active. Every synapse has weight 1. Input spike times come from the settings")
+    w("is active. Every synapse has weight 1 and a delay of one time step (longer delays go")
+    w("through delay lines of relay neurons). Input spike times come from the settings")
     w("of the Simulate tab.")
     if bypass:
         w("")
@@ -243,7 +249,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         extra = ", active at start" if st["initial"] else ""
         w(f"{var} = sim.Population(3, cell, label={var!r})   # latch of state {st['name']}: [N1 set, N2 ring, N3 ring]{extra}")
     w("")
-    order = ["OP", "NOT gates and delay neuron", "AND gates (transition terms)", "OR gates of the states (bypasses)",
+    order = ["OP", "Delay lines", "NOT gates and delay neuron", "AND gates (transition terms)", "OR gates of the states (bypasses)",
              "Latches", "Output"]
     for sec in order:
         if sec not in sections:
