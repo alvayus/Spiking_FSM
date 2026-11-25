@@ -431,6 +431,11 @@ td.share span { min-width: 48px; text-align: right; font-variant-numeric: tabula
 .formula { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); overflow-x: auto; }
 .formula-math { margin: 0; font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", serif; font-size: 16px; color: var(--ink); }
 .formula-math mtext { font-family: inherit; }
+/* one line when it fits; otherwise the second half wraps, indented under the bracket */
+.formula.one { padding: 12px 10px 12px calc(10px + 4.4em); text-indent: -4.4em; line-height: 2.2; font-size: 15px; }
+.formula.one > span { display: inline-block; text-indent: 0; white-space: nowrap; }
+.formula.one .formula-math { font-size: 15px; }
+#tab-energy .panel { width: 460px; }
 .energy-consts td:first-child { white-space: nowrap; }
 .tbl-wrap { max-height: 360px; overflow: auto; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -466,7 +471,7 @@ table.tbl tr.bad td { background: #fff3f3; }
   main { height: auto; }
   .tabpane.active { flex-direction: column; }
   .canvas-wrap { flex: none; height: max(360px, calc(100svh - 150px)); }
-  .panel, .panel.left { width: 100%; overflow: visible; border: 0; border-top: 1px solid var(--line); }
+  .panel, .panel.left, #tab-energy .panel { width: 100%; overflow: visible; border: 0; border-top: 1px solid var(--line); }
   .panel.left { border-top: 0; border-bottom: 1px solid var(--line); }
   .results { overflow: visible; padding: 12px; }
   .canvas-tools { flex-wrap: wrap; row-gap: 6px; }
