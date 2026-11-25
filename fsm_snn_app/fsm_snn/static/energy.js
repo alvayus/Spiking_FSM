@@ -60,8 +60,8 @@ function renderEnergy() {
 
 function energyNoRun(r) {
   const why = r ? "The machine or the implementation has changed since the last simulation." : "There is no simulation yet.";
-  return `<div class="card"><h3>Energy of a simulation</h3>
-    <div class="msg info">${why} Simulate it to estimate the energy of its spikes. Below, the energy that each neuron takes per spike.</div>
+  return `<div class="card"><h3>Power consumption of a simulation</h3>
+    <div class="msg info">${why} Simulate it to estimate the energy and power consumed by its spikes. Below, the energy that each neuron takes per spike.</div>
     <button class="btn primary energy-go" onclick="showTab('simulate')">Go to Simulate</button></div>`;
 }
 
