@@ -339,6 +339,9 @@ details.card[open] > summary { margin-bottom: 10px; }
 .syn-list { display: grid; gap: 4px; margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; font-weight: 400; }
 .syn-list li { display: flex; align-items: center; gap: 6px; }
 .syn-list a { flex: 1; color: var(--ink); }
+.syn-row { padding: 2px 4px; margin: 0 -4px; border-radius: 6px; cursor: pointer; }
+.syn-row:hover { background: var(--accent-soft); }
+.syn-row .syn-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .syn-tag { padding: 1px 6px; border-radius: 9px; font-size: 11px; font-weight: 700; }
 .syn-tag.exc { background: #e2e8f0; color: #334155; }
 .syn-tag.inh { background: #f8cecc; color: #8c2f2b; }

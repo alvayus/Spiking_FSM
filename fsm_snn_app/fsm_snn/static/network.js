@@ -502,7 +502,7 @@ function drawNetwork() {
     // bypasses have their own checkbox, independent of the excitatory / inhibitory ones
     if ((e.bypass ? !show.bypass : !show[e.rec]) || !visible(P) || !visible(Q)) continue;
     const d = netEdgePath(e, D);
-    const tip = `${netName(P)} → ${netName(Q)} · ${e.rec === "exc" ? "excitatory" : "inhibitory"}${e.bypass ? " bypass" : ""} · delay ${e.delay}`;
+    const tip = `${netName(P)} → ${netName(Q)} · ${e.rec === "exc" ? "excitatory" : "inhibitory"}${e.bypass ? " bypass" : ""}${e.delay !== 1 ? ` · delay ${e.delay}` : ""}`;
     eparts.push(`<g class="syn ${e.rec}${e.bypass ? " bypass" : ""}" data-e="${e.i}"><title>${esc(tip)}</title>
       <path class="hit" d="${d}"/><path class="line" d="${d}" marker-end="url(#${e.rec === "exc" ? "synExc" : "synInh"}${e.bypass ? "B" : ""})"/></g>`);
   }
@@ -572,7 +572,7 @@ function netSynDetails(el) {
     </ul>
     <dl class="kv syn-kv">
       <dt>Type</dt><dd><span class="syn-tag ${e.rec}${e.bypass ? " bypass" : ""}">${type}</span></dd>
-      <dt>Delay</dt><dd>${e.delay} time step${e.delay === 1 ? "" : "s"}</dd>
+      ${e.delay !== 1 ? `<dt>Delay</dt><dd>${e.delay} time steps</dd>` : ""}
     </dl>
 `;
   $("#netUnpin").addEventListener("click", () => { netSynPinned = null; netHighlight(); netDetails(); });
@@ -589,7 +589,8 @@ function netDetails() {
   const desc = n.kind === "latch" ? (n.j ? NET_DESC.ring : NET_DESC.set) : NET_DESC[n.kind] || "";
   const row = (e, other) => {
     const o = netData.nodes[other], os = NET_STYLE[o.kind] || NET_STYLE.output;
-    return `<li><i class="dot" style="background:${os.fill};border-color:${os.stroke}"></i><a href="#" data-goto-n="${other}">${esc(netName(o))}</a>
+    // a row is the synapse: clicking it selects the synapse (its card links to both neurons)
+    return `<li class="syn-row" data-goto-e="${e.i}" title="Select this synapse"><i class="dot" style="background:${os.fill};border-color:${os.stroke}"></i><span class="syn-name">${esc(netName(o))}</span>
       <span class="syn-tag ${e.rec}${e.bypass ? " bypass" : ""}">${e.rec === "exc" ? "exc" : "inh"}</span></li>`;
   };
   const lat = netLatency(netPinned);
@@ -610,9 +611,11 @@ function netDetails() {
     ${n.src ? "" : `<div class="field">Incoming synapses (${inc.length})<ul class="syn-list">${inc.map((e) => row(e, e.from)).join("") || "<li class='muted'>None</li>"}</ul></div>`}
     <div class="field">Outgoing synapses (${out.length})<ul class="syn-list">${out.map((e) => row(e, e.to)).join("") || "<li class='muted'>None</li>"}</ul></div>`;
   $("#netUnpin").addEventListener("click", () => { netPinned = null; netHighlight(); netDetails(); });
-  $$("[data-goto-n]", el).forEach((a) => a.addEventListener("click", (ev) => {
-    ev.preventDefault(); netPinned = a.dataset.gotoN; netHighlight(); netDetails();
-  }));
+  $$("[data-goto-e]", el).forEach((li) => {
+    li.addEventListener("click", () => { netSynPinned = +li.dataset.gotoE; netPinned = null; netSynHover = null; netHighlight(); netDetails(); });
+    li.addEventListener("pointerenter", () => { netSynHover = +li.dataset.gotoE; netHighlight(); });
+    li.addEventListener("pointerleave", () => { netSynHover = null; netHighlight(); });
+  });
 }
 
 function netFit() { if (netData) netVp.fit(netData.box, 30, 1.4); }
