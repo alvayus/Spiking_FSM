@@ -26,6 +26,19 @@ function renderManualFields() {
 // ------------------------------------------------------------------ timing hints (in ms)
 const curDt = () => (parseFloat($("#dt").value) > 0 ? parseFloat($("#dt").value) : 1);
 const msText = (x) => String(+x.toFixed(3));
+// the arrows of the time step field move along round values (1-2-5) instead of a fixed increment;
+// any other value can still be typed
+const DT_LADDER = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10];
+let dtBefore = null;                       // value just before an arrow click or key
+function dtArrow(e) {
+  const el = $("#dt"), v = parseFloat(el.value);
+  if (!e.inputType && dtBefore > 0 && v > 0 && v !== dtBefore) {   // a step, not typing
+    const next = v > dtBefore ? DT_LADDER.find((x) => x > dtBefore + 1e-9)
+                              : [...DT_LADDER].reverse().find((x) => x < dtBefore - 1e-9);
+    el.value = next ?? dtBefore;
+  }
+  dtBefore = parseFloat(el.value);
+}
 // same rounding as Python's round() on the server (half to even)
 const roundSteps = (x) => { const r = Math.round(x); return Math.abs(x % 1) === 0.5 && r % 2 ? r - 1 : r; };
 

@@ -71,7 +71,8 @@ async function init() {
   const sc = [$("#rasterScroll"), $("#rasterExpScroll")];
   sc.forEach((a, i) => a.addEventListener("scroll", () => { const b = sc[1 - i]; if (b.scrollLeft !== a.scrollLeft) b.scrollLeft = a.scrollLeft; }));
   $("#manualList").addEventListener("input", checkTyped);
-  $("#dt").addEventListener("input", () => { checkTyped(); updateGapMs(); updateTsfNote(); });
+  ["pointerdown", "keydown"].forEach((ev) => $("#dt").addEventListener(ev, () => (dtBefore = parseFloat($("#dt").value))));
+  $("#dt").addEventListener("input", (e) => { dtArrow(e); checkTyped(); updateGapMs(); updateTsfNote(); });
   $("#tsf").addEventListener("input", updateTsfNote);
   ["#minGap", "#maxGap"].forEach((id) => $(id).addEventListener("input", updateGapMs));
   updateGapMs(); updateTsfNote();
