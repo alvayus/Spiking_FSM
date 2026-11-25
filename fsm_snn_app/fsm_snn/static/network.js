@@ -22,14 +22,14 @@ const NET_STYLE = {
   init:      { fill: "#f5f5f5", stroke: "#666666", name: "Initialisation source" },
   op:        { fill: "#ffe6cc", stroke: "#d79b00", name: "OP: input-driven OR" },
   relay:     { fill: "#dae8fc", stroke: "#6c8ebf", name: "Copy of an input" },
-  delay:     { fill: "#fff2cc", stroke: "#d6b656", name: "Delay neuron of the AND gates (OP + 1)" },
+  delay:     { fill: "#fff2cc", stroke: "#d6b656", name: "OP + 1: delay neuron of the AND gates" },
   delay_line: { fill: "#fff2cc", stroke: "#d6b656", name: "Delay line: repeats its source one step later" },
   not_input: { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate of an input" },
   not_state: { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate of a state" },
   term:      { fill: "#e1d5e7", stroke: "#9673a6", name: "AND gate (transition term)" },
-  no_event:  { fill: "#f8cecc", stroke: "#b85450", name: "Bypass: no input spikes now" },
-  enter_or:  { fill: "#ffe6cc", stroke: "#d79b00", name: "OR gate: the state was entered" },
-  leave_or:  { fill: "#ffe6cc", stroke: "#d79b00", name: "OR gate: the state was left" },
+  no_event:  { fill: "#f8cecc", stroke: "#b85450", name: "NOT OP now, with OP some steps before" },
+  enter_or:  { fill: "#ffe6cc", stroke: "#d79b00", name: "OR gate: set of the state" },
+  leave_or:  { fill: "#ffe6cc", stroke: "#d79b00", name: "OR gate: reset of the state" },
   latch:     { fill: "#d5e8d4", stroke: "#82b366", name: "Latch neuron" },
   output:    { fill: "#f5f5f5", stroke: "#666666", name: "Output neuron" },
 };
@@ -38,14 +38,14 @@ const NET_DESC = {
   init: "Spike source with a single spike at the start: it sets the latches of the states that are active at start.",
   op: "Input-driven OR: spikes one step after any input spikes. It triggers every evaluation of the gates.",
   relay: "Parallel implementation: repeats an input one step later. The AND gates reached by the 1-step bypass receive one copy per bypass spike they may get, so they are never excited more than inhibited.",
-  delay: "Yellow neuron of the AND gates: repeats OP one step later and provides the excitation of every AND gate.",
+  delay: "OP + 1: repeats OP one step later. It is the excitation of every AND gate.",
   delay_line: "Every synapse has a delay of one step. Where a signal must arrive later, it goes through a delay line: each of its neurons repeats the spikes of its source one step later (+1, +2, ...), and every synapse that needs that delay leaves from it.",
   not_input: "Excited by OP and inhibited by the input: spikes when some input spikes but this one does not.",
   not_state: "Excited by OP and inhibited by the latch (N1, N2, N3): spikes when some input spikes and the state is not active.",
-  term: "AND gate of a transition term. Excited by the delay neuron and inhibited by the NOT gates of its positive literals, by the inputs of its negated literals and by the NOT gate of its source state; it then sets the destination latch and resets the source latch. Parallel implementation: each term has up to four of them, one per case, and at most one fires: via 1 step (excited by the AND gates that entered the source state one step earlier), via 2 or 3 steps (excited by the \"entered\" OR gate of the source state) and via the latch (the case of the pipelined network); any later change of the source state inhibits the older cases.",
-  no_event: "Parallel implementation: spikes when there were input spikes 1, 2 or 3 steps earlier and there are none now. It cancels the bypasses of those spikes, so a bypass never fires a transition by itself.",
-  enter_or: "Parallel implementation: OR of the AND gates that enter the state. It sets the latch one step later and carries the bypass of input spikes 2 and 3 steps earlier.",
-  leave_or: "Parallel implementation: OR of the AND gates that leave the state. It resets the latch a second time (one step later) and carries the bypass of input spikes 2 and 3 steps earlier.",
+  term: "AND gate of a term of a transition: it fires when its source state is active and the term holds, and then sets the destination and resets the source. Excited by OP + 1, inhibited by the NOT gates of its literals and of its source state. Parallel: up to three per term, one per case, and at most one fires — bypass 1 (the source state was set one step earlier), bypass 2 (set two steps earlier) or latch (no recent change).",
+  no_event: "NOT OP now, with OP g steps before: there were input spikes g steps earlier and there are none now. It cancels their bypasses, so a bypass never fires a transition by itself.",
+  enter_or: "Set of the state: OR of the AND gates that enter it. It sets the latch (N1) one step later and carries the bypass of the spikes two steps earlier.",
+  leave_or: "Reset of the state: OR of the AND gates that leave it (they reset the ring directly). It carries the bypass of the spikes two steps earlier.",
   set: "Set neuron (N1) of the latch: starts the ring. Pipelined: setting a state that is already active does no harm. Parallel: it is set one step after the reset, and the ring inhibits it, so a state that is already active is not set again.",
   ring: "Ring neuron (N2 / N3) of the latch: the two ring neurons excite each other, so the state is active while they keep spiking. A transition that leaves the state inhibits them (reset).",
   output: "OR of the transitions that enter states marked as accepting in the JSON specification.",
@@ -68,9 +68,9 @@ const NET_GROUPS = {
     ["relay", "Copies of the inputs", ["relay"], "t + 1"],
     ["delay", "Delay neurons (delay lines)", ["delay", "delay_line"], "+1 step each"],
     ["not", "NOT gates", ["not_input", "not_state"], "t + 2"],
-    ["noevent", "No input spikes now (bypass)", ["no_event"], "t + 2"],
+    ["noevent", "NOT OP, OP before (bypass)", ["no_event"], "t + 2"],
     ["term", "AND gates (up to 3 per term)", ["term"], "t + 3"],
-    ["or", "OR: state entered / left", ["enter_or", "leave_or"], "t + 4"],
+    ["or", "OR: set / reset of the states", ["enter_or", "leave_or"], "t + 4"],
     ["latch", "Latches (states)", ["latch"], "set t + 5, active t + 6"],
     ["output", "Output", ["output"], "t + 4"],
   ],
@@ -216,7 +216,7 @@ function netPlacePipelined(net, nodes, all, shift = 0, shift2 = 0) {
   }
   const headerCols = [
     ["src", "Inputs", (n) => n.src], ["op", "OR", (n) => n.kind === "op"],
-    ["gate", "Delay · NOT inputs", (n) => n.kind === "delay" || n.kind === "not_input"],
+    ["gate", "OP + 1 · NOT inputs", (n) => n.kind === "delay" || n.kind === "not_input"],
     ["notst", "NOT states", (n) => n.kind === "not_state"], ["term", "AND (terms)", (n) => n.kind === "term"],
     ["latch", "Latches", (n) => n.kind === "latch", LATCH_DX / 2], ["out", "Output", (n) => n.kind === "output"],
   ];
@@ -224,7 +224,7 @@ function netPlacePipelined(net, nodes, all, shift = 0, shift2 = 0) {
 }
 
 // Parallel: as pipelined (NOT gate, AND gates and latch per state), plus the OR gates
-// "entered" / "left" of each state and, between the AND gates and the OR gates, a
+// "set" / "reset" of each state and, between the AND gates and the OR gates, a
 // corridor with two bypass lanes per state.
 function netPlaceParallel(net, nodes, all, shift = 0, shift2 = 0) {
   const X = shifted(COLP, shift, shift2);
@@ -255,9 +255,9 @@ function netPlaceParallel(net, nodes, all, shift = 0, shift2 = 0) {
   }
   const headerCols = [
     ["src", "Inputs", (n) => n.src], ["op", "OR · input copies", (n) => n.kind === "op"],
-    ["gate", "Delay · NOT inputs", (n) => n.kind === "delay" || n.kind === "not_input"],
-    ["notst", "No spikes · NOT states", (n) => n.kind === "not_state"], ["term", "AND (terms)", (n) => n.kind === "term"],
-    ["or", "OR (entered · left)", (n) => n.kind === "enter_or" || n.kind === "leave_or"],
+    ["gate", "OP + 1 · NOT inputs", (n) => n.kind === "delay" || n.kind === "not_input"],
+    ["notst", "NOT OP · NOT states", (n) => n.kind === "not_state"], ["term", "AND (terms)", (n) => n.kind === "term"],
+    ["or", "OR (set · reset)", (n) => n.kind === "enter_or" || n.kind === "leave_or"],
     ["latch", "Latches", (n) => n.kind === "latch", LATCH_DX / 2], ["out", "Output", (n) => n.kind === "output"],
   ];
   return { X, bands, groups, H: Math.max(y, 200), headerCols };
@@ -298,7 +298,7 @@ function routeBypassBus(edges, nodes, X) {
   function y2Of(e) { return e.points[e.points.length - (e.rec === "exc" ? 2 : 3)][1]; }
 }
 
-// Parallel: "entered" OR gate -> NOT gate of the same state (the 3-step case folded into
+// Parallel: "set" OR gate -> NOT gate of the same state (the 3-step case folded into
 // the NOT gate). It goes back two columns: left from the OR gate to a lane beside its column,
 // down to the bottom of the band, left under the AND gates and up into the NOT gate (right
 // half of its bottom; the latch arrives in the middle).
@@ -497,7 +497,7 @@ function netGlyph(n) {
   if (n.kind === "input") return n.label.length <= 3 ? n.label : n.label.slice(0, 2) + "…";
   if (n.kind === "init") return "init";
   if (n.kind === "op") return "OP";
-  if (n.kind === "delay") return "Δ";
+  if (n.kind === "delay") return "OP+1";
   // the name of a delay line fits inside it when short (no label below, which wires would cross)
   if (n.kind === "delay_line") return n.label.replace(" ", "").length <= 6 ? n.label.replace(" ", "") : "+" + n.k;
   if (["not_input", "not_state", "no_event"].includes(n.kind)) return "¬";
@@ -510,13 +510,14 @@ function netGlyph(n) {
 function netLabelLines(n) {
   if (n.kind === "input" && n.label.length > 3) return [n.label];
   if (n.kind === "not_input" || n.kind === "not_state") return [n.label.replace(/^NOT /, "¬")];
-  if (n.kind === "delay") return ["delay"];
+  if (n.kind === "delay") return [];
   if (n.kind === "delay_line") return n.label.replace(" ", "").length <= 6 ? [] : [n.label];
-  if (["no_event", "enter_or", "leave_or", "relay"].includes(n.kind)) return [n.label];
+  if (n.kind === "no_event") return ["¬OP now", `OP ${n.g} step${n.g > 1 ? "s" : ""} before` + (n.label.includes("#") ? " #" + n.label.split("#")[1] : "")];
+  if (["enter_or", "leave_or", "relay"].includes(n.kind)) return [n.label];
   if (n.kind === "term") {
     const t = transById(n.tid);
     const cond = n.cond || (t ? t.options[n.k] : null);
-    return [n.label.replace(/ \(\d+\)$/, ""), (cond ? optionText(cond) : "") + (n.via ? ` · via ${n.via}` : "")];
+    return [n.label.replace(/ \(\d+\)$/, ""), (cond ? optionText(cond) : "") + (n.via ? ` · ${n.via}` : "")];
   }
   return [];
 }

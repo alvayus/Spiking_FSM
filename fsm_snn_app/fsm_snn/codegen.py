@@ -86,20 +86,20 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         elif kind == "relay":
             var, com = unique("copy_" + label.replace(" #", "_")), f"copy of input {label.split(' #')[0]} (1-step bypass vetoes)"
         elif kind == "no_event":
-            var = unique("no_spikes_" + str(n["g"]) + (("_" + label.split("#")[1]) if "#" in label else ""))
-            com = f"bypass: input spikes {n['g']} step{'s' if n['g'] > 1 else ''} earlier and none now"
+            var = unique("not_OP_" + str(n["g"]) + (("_" + label.split("#")[1]) if "#" in label else ""))
+            com = f"NOT OP now, with OP {n['g']} step{'s' if n['g'] > 1 else ''} before (cancels the bypasses)"
         elif kind == "enter_or":
-            var, com = unique(label.replace(" ", "_")), f"OR: a term entering {sname(n['sid'])} fired"
+            var, com = unique(label.replace(" ", "_")), f"OR of the AND gates that set {sname(n['sid'])}"
         elif kind == "leave_or":
-            var, com = unique(label.replace(" ", "_")), f"OR: a term leaving {sname(n['sid'])} fired"
+            var, com = unique(label.replace(" ", "_")), f"OR of the AND gates that reset {sname(n['sid'])}"
         elif kind == "term":
             tid, k = term_info[i]
             t = trans[tid]
             a, b = st_by_id[t["from"]]["name"], st_by_id[t["to"]]["name"]
             via = n.get("via")
             var = unique(f"AND_{a}_{b}" + (f"_{k + 1}" if len(t["options"]) > 1 else "")
-                         + (f"_{via.split(' ')[0]}" if via else ""))
-            com = f"AND gate of {a} -> {b}: {option_to_text(n.get('cond', t['options'][k]))}" + (f" (via {via})" if via else "")
+                         + (f"_{ {'latch': 'latch', 'bypass 1': 'b1', 'bypass 2': 'b2'}[via]}" if via else ""))
+            com = f"AND gate of {a} -> {b}: {option_to_text(n.get('cond', t['options'][k]))}" + (f" ({via})" if via else "")
         else:
             var, com = unique("output"), "output neuron"
         where[i] = (var, 0)
@@ -150,10 +150,10 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             if pk == "no_event":
                 return "AND gates (transition terms)", f"{pn}: cancels the bypass when there are no input spikes now"
             if pk == "term":
-                return "AND gates (transition terms)", (f"bypass, 1 step: {pn} entered the source state" if rec == "exc"
-                                                        else f"bypass: {pn} changed the source state 1 step earlier")
+                return "AND gates (transition terms)", (f"bypass 1: {pn} sets the source state" if rec == "exc"
+                                                        else f"{pn} changed the source state 1 step earlier")
             if pk in ("enter_or", "leave_or"):
-                return "AND gates (transition terms)", f"bypass: {pn} (input spikes 2 or 3 steps earlier)"
+                return "AND gates (transition terms)", (f"bypass 2: {pn}" if rec == "exc" else f"{pn} 2 steps earlier")
             return "AND gates (transition terms)", f"input {pn}: {pn} must not spike"
         if qk == "latch":
             st = qn.split(".")[0]
@@ -193,9 +193,9 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     if bypass:
         w("")
         w("Parallel implementation: bypasses pass the transitions fired by the input spikes")
-        w("of the 3 previous steps on to the next ones, so input spikes may come on")
-        w("consecutive steps. Each term has up to four AND gates (via 1, 2 or 3 steps, or via")
-        w("the latch), and at most one of them fires.")
+        w("of the 2 previous steps on to the next ones, so input spikes may come on")
+        w("consecutive steps. Each term has up to three AND gates (bypass 1, bypass 2 and")
+        w("latch), and at most one of them fires.")
     if simulation:
         w("")
         w("The script builds the network, runs it, compares the states (and Output) with")
