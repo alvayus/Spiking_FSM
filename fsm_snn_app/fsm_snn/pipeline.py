@@ -49,6 +49,7 @@ def _sim_defaults(p: dict | None) -> dict:
     p.setdefault("weights", None)
     p.setdefault("neuron_params", None)
     p.setdefault("save", True)
+    p.setdefault("time_scale_factor", None)      # SpiNNaker: None = the smallest supported
     return p
 
 
@@ -65,6 +66,10 @@ def run(spec: dict, params: dict | None = None) -> dict:
     errors, warnings = validate(s)
     if errors:
         return dict(ok=False, errors=errors, warnings=warnings, invalid_spec=True)
+    tsf = p["time_scale_factor"]
+    if p["backend"] != "ideal" and tsf and int(tsf) < pynn_runner.time_scale_factor(float(p["dt"])):
+        return dict(ok=False, errors=[f"With a {float(p['dt']):g} ms time step SpiNNaker needs a time scale factor "
+                                      f"of at least {pynn_runner.time_scale_factor(float(p['dt']))}."])
     net = build(s)
     inp = make_inputs(s, p)
     last = max([e for e, _ in inp["events"]] + [INIT_STEP])
@@ -74,7 +79,8 @@ def run(spec: dict, params: dict | None = None) -> dict:
     try:
         spikes = simulate(net, inp["trains"], backend=p["backend"], dt=float(p["dt"]),
                           duration_steps=duration, neuron_params=p["neuron_params"],
-                          weights=p["weights"], should_stop=lambda: bool(job) and job in CANCELLED)
+                          weights=p["weights"], should_stop=lambda: bool(job) and job in CANCELLED,
+                          time_scale=p["time_scale_factor"])
     except pynn_runner.SimulationCancelled:
         return dict(ok=False, cancelled=True, errors=["Simulation cancelled."])
     except SpiNNakerUnavailable as e:

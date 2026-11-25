@@ -30,6 +30,14 @@ const msText = (x) => String(+x.toFixed(3));
 const roundSteps = (x) => { const r = Math.round(x); return Math.abs(x % 1) === 0.5 && r % 2 ? r - 1 : r; };
 
 // "5 to 15 steps" is also shown in ms for the current time step
+// smallest time scale factor SpiNNaker supports for the time step (pynn_runner.time_scale_factor)
+const minTsf = (dt) => Math.max(1, Math.ceil(1 / dt - 1e-9));
+function updateTsfNote() {
+  const need = minTsf(curDt()), v = parseInt($("#tsf").value, 10);
+  $("#tsfNote").innerHTML = v >= 1 && v < need
+    ? ` <b class="warn-text">With a ${msText(curDt())} ms step SpiNNaker needs a factor of at least ${need}.</b>`
+    : ` With a ${msText(curDt())} ms step: ${v >= 1 ? v : need}.`;
+}
 function updateGapMs() {
   const dt = curDt(), lo = Math.max(1, +$("#minGap").value), hi = Math.max(lo, +$("#maxGap").value);
   $("#gapMs").textContent = ` With a ${msText(dt)} ms step: ${msText(lo * dt)} to ${msText(hi * dt)} ms between input spikes.`;
@@ -74,8 +82,10 @@ function collectParams() {
     backend: sim.backend, dt: parseFloat($("#dt").value) > 0 ? parseFloat($("#dt").value) : 1, mode: sim.mode,
     n_events: +$("#nEvents").value, min_gap: Math.max(1, +$("#minGap").value), max_gap: Math.max(1, +$("#minGap").value, +$("#maxGap").value),
     p_input: +$("#pInput").value, manual,
+    time_scale_factor: parseInt($("#tsf").value, 10) >= 1 ? parseInt($("#tsf").value, 10) : null,
   };
-  store("fsm_snn_sim", { n_events: p.n_events, min_gap: p.min_gap, max_gap: p.max_gap, p_input: p.p_input, mode: p.mode, dt: p.dt });
+  store("fsm_snn_sim", { n_events: p.n_events, min_gap: p.min_gap, max_gap: p.max_gap, p_input: p.p_input, mode: p.mode, dt: p.dt,
+    tsf: p.time_scale_factor });
   return p;
 }
 function restoreSimFields() {
@@ -83,6 +93,7 @@ function restoreSimFields() {
   $("#nEvents").value = s.n_events; $("#minGap").value = s.min_gap; $("#maxGap").value = s.max_gap;
   $("#pInput").value = s.p_input;
   if (s.dt > 0) $("#dt").value = s.dt;
+  if (s.tsf >= 1) $("#tsf").value = s.tsf;
   setMode(["manual", "mixed"].includes(s.mode) ? s.mode : "random");
 }
 function setMode(m) {

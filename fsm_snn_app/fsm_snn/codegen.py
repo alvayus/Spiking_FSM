@@ -222,8 +222,8 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
     last = max([e for e, _ in inp["events"]] + [INIT_STEP])
     w(f"DURATION = {last + 30}                     # simulated time steps")
     w("")
-    tsf = time_scale_factor(float(p["dt"]))
-    w("sim.setup(timestep=DT, min_delay=DT" + (f", time_scale_factor={tsf})   # below 1 ms: {tsf} times slower than real time"
+    tsf = max(time_scale_factor(float(p["dt"])), int(p.get("time_scale_factor") or 1))
+    w("sim.setup(timestep=DT, min_delay=DT" + (f", time_scale_factor={tsf})   # {tsf} times slower than real time"
                                               if tsf > 1 else ")"))
     w("cell = sim.IF_curr_exp(**NEURON_PARAMS)")
     w("")

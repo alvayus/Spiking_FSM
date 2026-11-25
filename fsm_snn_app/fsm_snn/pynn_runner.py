@@ -62,7 +62,7 @@ def import_backend(backend):
 
 
 def run_pynn(netlist, trains, backend="spinnaker", dt=1.0, duration_steps=None,
-             neuron_params=None, weights=None, should_stop=None):
+             neuron_params=None, weights=None, should_stop=None, time_scale=None):
     """Simulate ``netlist`` (dict form, see Netlist.to_dict) with PyNN.
 
     ``trains``: {input name: [steps]}.  Returns {neuron index: [steps]}.
@@ -91,7 +91,9 @@ def run_pynn(netlist, trains, backend="spinnaker", dt=1.0, duration_steps=None,
 
     # The network itself is deterministic: randomness only enters through the
     # input spike trains, which are generated (with a seed) before this call.
-    sim.setup(timestep=dt, min_delay=dt, time_scale_factor=time_scale_factor(dt))
+    # time_scale: the user's factor (at least the smallest one SpiNNaker supports)
+    tsf = max(time_scale_factor(dt), int(time_scale or 1))
+    sim.setup(timestep=dt, min_delay=dt, time_scale_factor=tsf)
     try:
         # Spike sources: one per input plus the initialisation source.
         spike_times = []

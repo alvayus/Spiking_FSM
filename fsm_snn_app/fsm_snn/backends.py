@@ -150,7 +150,7 @@ def simulate_ideal(net: Netlist | dict, trains: dict, duration_steps: int | None
 
 def simulate(net: Netlist, trains: dict, backend: str = "ideal", dt: float = 1.0,
              duration_steps: int | None = None, neuron_params: dict | None = None,
-             weights: dict | None = None, should_stop=None) -> dict:
+             weights: dict | None = None, should_stop=None, time_scale: int | None = None) -> dict:
     if backend == "ideal":
         return simulate_ideal(net, trains, duration_steps, weights, should_stop)
     if backend == "spinnaker":
@@ -162,4 +162,4 @@ def simulate(net: Netlist, trains: dict, backend: str = "ideal", dt: float = 1.0
     return pynn_runner.run_pynn(d, trains, backend=backend, dt=dt,
                                 duration_steps=duration_steps,
                                 neuron_params=neuron_params, weights=weights,
-                                should_stop=should_stop)
+                                should_stop=should_stop, time_scale=time_scale)
