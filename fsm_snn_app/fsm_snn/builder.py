@@ -381,14 +381,12 @@ def _modes(s, trans) -> dict:
             if nxt not in seen:
                 seen.add(nxt)
                 todo.append(nxt)
-    sources = {t["from"] for t in trans}
     always = start
     for x in seen:
         always &= x
     out["perm"] = {sid for sid in ids if always & bit[sid]}       # active from the start, never left
     var = [sid for sid in ids if sid not in out["perm"]]
     out["direct"] = all(out["ent"][sid] <= 1 and not out["both"][sid] for sid in var)
-    out["shared"] = {sid for sid in var if out["ent"][sid] > 1 and sid in sources}
     out["reent"] = {sid: bool(reent & bit[sid]) for sid in ids}
     out["coact"] = coact
     return out
@@ -419,7 +417,6 @@ def _disjoint(options, order):
 
 
 # ------------------------------------------------------------------------- the network
-VIA = ("latch", "bypass 1")
 
 
 class _Builder:
