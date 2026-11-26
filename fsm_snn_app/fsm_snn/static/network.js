@@ -20,8 +20,8 @@
 const NET_STYLE = {
   input:     { fill: "#dae8fc", stroke: "#6c8ebf", name: "Input (spike source)" },
   init:      { fill: "#f5f5f5", stroke: "#666666", name: "Initialisation source" },
-  op:        { fill: "#ffe6cc", stroke: "#d79b00", name: "OP: output of the Alt. OR (⩒) of the inputs" },
-  relay:     { fill: "#ffe6cc", stroke: "#d79b00", name: "Input neuron of the Alt. OR (⩒)" },
+  op:        { fill: "#ffe6cc", stroke: "#d79b00", name: "OP: output of the Alt. OR of the inputs" },
+  relay:     { fill: "#ffe6cc", stroke: "#d79b00", name: "Input neuron of the Alt. OR" },
   delay:     { fill: "#fff2cc", stroke: "#d6b656", name: "Delay neuron of the AND gates (OP + 1)" },
   delay_line: { fill: "#fff2cc", stroke: "#d6b656", name: "Delay neuron: repeats its source one step later" },
   term_relay: { fill: "#fff2cc", stroke: "#d6b656", name: "Delay neuron of a transition (+1)" },
@@ -31,15 +31,15 @@ const NET_STYLE = {
   term:      { fill: "#e1d5e7", stroke: "#9673a6", name: "AND gate (transition)" },
   no_event:  { fill: "#e1d5e7", stroke: "#9673a6", name: "Bypass guard ¬OP(t) ∧ OP(t − 1)" },
   no_prev:   { fill: "#e1d5e7", stroke: "#9673a6", name: "Bypass guard OP(t) ∧ ¬OP(t − 2)" },
-  nor:       { fill: "#f8cecc", stroke: "#b85450", name: "NOR gate (⊽) of an Inh.-based OR" },
+  nor:       { fill: "#f8cecc", stroke: "#b85450", name: "NOR gate of an Inh.-based OR" },
   latch:     { fill: "#d5e8d4", stroke: "#82b366", name: "Latch neuron" },
   output:    { fill: "#e1d5e7", stroke: "#9673a6", name: "Output (pattern found)" },
 };
 const NET_DESC = {
   input: "Spike source of an input signal. It excites its input neuron of the Alt. OR and inhibits those of the inputs after it, the NOT gate of the input and the AND gates in which the input appears negated. Delayed by delay neurons, it also excites the AND gates in which it is the first positive input.",
   init: "Spike source with a single spike at the start: it starts the ring of the latches of the states that are active at start.",
-  op: "OP, the output of the Alt. OR (⩒, alternative OR gate) of the inputs (spiking ALU, Fig. 6; complex case of the manuscript): it spikes two steps after any input spikes (inputs +2), and is the operation signal of the NOT and NOR gates and of the delay neuron of the AND gates. At most one of its input neurons fires at a time, so it is never overexcited.",
-  relay: "Input neuron of the Alt. OR (⩒, the alternative OR gate of ALU Fig. 6): excited by its input and inhibited by the inputs before it, so when several inputs spike together only the first one excites OP (on Dynap-SE, a neuron that receives two excitatory spikes at once stops firing). The Alt. OR needs no operation signal, unlike the Inh.-based OR (⊽). The input neuron of the first input is never inhibited, so it is also that input one step later (A+1): the delay chain of A continues from it.",
+  op: "OP, the output of the Alt. OR (alternative OR gate) of the inputs (spiking ALU, Fig. 6; complex case of the manuscript): it spikes two steps after any input spikes (inputs +2), and is the operation signal of the NOT and NOR gates and of the delay neuron of the AND gates. At most one of its input neurons fires at a time, so it is never overexcited.",
+  relay: "Input neuron of the Alt. OR (the alternative OR gate of ALU Fig. 6): excited by its input and inhibited by the inputs before it, so when several inputs spike together only the first one excites OP (on Dynap-SE, a neuron that receives two excitatory spikes at once stops firing). The Alt. OR needs no operation signal, unlike the Inh.-based OR. The input neuron of the first input is never inhibited, so it is also that input one step later (A+1): the delay chain of A continues from it.",
   delay: "Delay neuron of the AND gates (OP + 1), the yellow neuron of Fig. 1c: it excites the AND gates that have no positive input.",
   delay_line: "Delay neuron: every synapse has a delay of one step, so where a signal must arrive later it goes through a chain of delay neurons, each repeating its source one step later (+1, +2, ...), shared by every synapse that needs that delay. The inputs +3 excite the AND gates of which they are the first positive input; OP + 2 and OP + 3 operate the Inh.-based OR gates.",
   term_relay: "Delay neuron of a transition: repeats its AND gates one step later (they are the cases of the same transition, so at most one fires and it is never overexcited). It tells the NOT gate of the state it enters, and the AND gates of the states it enters and leaves, that the transition happened 3 or 2 steps before (only in machines where a state can be entered by two AND gates at once).",
@@ -49,10 +49,10 @@ const NET_DESC = {
   term: "AND gate of a transition (Fig. 1c), a NOR neuron inhibited by the NOT gates of its positive inputs, by its negated inputs and by the NOT gate of its source state. Its operation signal is the delay neuron OP + 1 (Fig. 1c) or, as an optimisation of the inhibition-based AND gate (like A·S0 in the complex case of the manuscript), its first positive input delayed to arrive at the same time (A+3): that input then needs no NOT gate, since the AND gate only operates when it spikes. It sets the destination and resets the source. Parallel: the box of a transition holds up to three AND gates, one per case, and at most one fires: latch (the NOT gate of the state knows it), bypass t−1 (the source state was just entered by the input spikes at t − 1; excited by the AND gate that entered it) and, where a state can be left and entered at once, bypass t−2.",
   no_event: "Bypass guard ¬OP(t) ∧ OP(t − 1): excited by OP of one step earlier and inhibited by OP now, it fires when there were input spikes at t − 1 and there are none at t, and cancels bypass t−1, so a bypass never fires a transition by itself.",
   no_prev: "Bypass guard OP(t) ∧ ¬OP(t − 2): excited by OP now and inhibited by OP of two steps earlier, it cancels bypass t−2 when there were no input spikes at t − 2 (its NOR gate stays silent then).",
-  nor: "NOR gate (⊽) of an Inh.-based OR (inhibition-based OR gate, Fig. 1b): excited by OP + 2 and inhibited by the AND gates of the OR, it fires when there were input spikes and none of them fired, and inhibits the output of the OR gate (the Set neuron N1 of the state, or Output), which OP + 3 excites. Only used where two of those AND gates can fire at once.",
-  set: "Set neuron (N1) of the latch (Fig. 1d): it starts the ring, inhibits itself and is inhibited by the ring, so a state that is already active is not set again and N2 never receives N1 and N3 together. It is the OR gate of the AND gates that enter the state: excited by them directly when they never fire together, else the output of an Inh.-based OR (⊽).",
+  nor: "NOR gate of an Inh.-based OR (inhibition-based OR gate, Fig. 1b): excited by OP + 2 and inhibited by the AND gates of the OR, it fires when there were input spikes and none of them fired, and inhibits the output of the OR gate (the Set neuron N1 of the state, or Output), which OP + 3 excites. Only used where two of those AND gates can fire at once.",
+  set: "Set neuron (N1) of the latch (Fig. 1d): it starts the ring, inhibits itself and is inhibited by the ring, so a state that is already active is not set again and N2 never receives N1 and N3 together. It is the OR gate of the AND gates that enter the state: excited by them directly when they never fire together, else the output of an Inh.-based OR.",
   ring: "Ring neuron (N2 / N3) of the latch (Fig. 1d): the two ring neurons excite each other, so the state is active while they keep spiking. The AND gates that leave the state inhibit them (Reset).",
-  output: "Output: the OR gate of the AND gates that enter states marked as accepting (pattern found). Excited by them directly when they never fire together, else an Inh.-based OR (⊽).",
+  output: "Output: the OR gate of the AND gates that enter states marked as accepting (pattern found). Excited by them directly when they never fire together, else an Inh.-based OR.",
 };
 // Neuron types that can be shown or hidden (the coloured checkboxes double as legend):
 // the name of the component and, in brackets, the symbol drawn inside its neurons.
@@ -80,7 +80,7 @@ const TERM_GAP = 44;               // extra space between the boxes of two terms
 const DL_DX = 110;                 // columns of the delay lines of the inputs (input -> +1 -> +2)
 // parallel: as pipelined, plus a corridor for the bypasses after the AND gates
 const COLP = { src: 0, rel: 150, op: 290, gate: 450, notst: 620, term: 810, trel: 970, nor: 1080, latch: 1220, out: 1450 };
-const TREL_DY = 36;                // vertical spacing of the +1 of the AND gates entering a state
+const TREL_DY = 50;                // vertical spacing of the +1 of the AND gates entering a state
 const BYPASS_LANE = 8;             // spacing of the bypass lanes (two per state)
 const ROW_P = 84;                  // parallel: vertical spacing of the AND gates (labels above, bypasses below)
 const LATCH_DX = 84;               // ring neurons at COLX.latch, set neuron N1 to their right
@@ -284,10 +284,10 @@ function netPlacePipelined(net, nodes, all, shift = 0) {
     y += h;
   }
   const headerCols = [
-    ["src", "Inputs", (n) => n.src], ["rel", "Alt. OR ⩒", (n) => n.kind === "relay" && n.x === X.rel], ["op", "OP", (n) => n.kind === "op"],
-    ["gate", "OP + 1 · Ā+3", (n) => n.kind === "delay" || n.kind === "not_input"],
-    ["notst", "S̄ (NOT states)", (n) => n.kind === "not_state"], ["term", "AND gates", (n) => n.kind === "term"],
-    ["trel", "Delay +1", isTermLine], ["nor", "Inh.-based OR ⊽", (n) => n.kind === "nor"],
+    ["src", "Inputs", (n) => n.src], ["rel", "Alt. OR", (n) => n.kind === "relay" && n.x === X.rel], ["op", "OP", (n) => n.kind === "op"],
+    ["gate", "OP + 1 · NOT gates", (n) => n.kind === "delay" || n.kind === "not_input"],
+    ["notst", "NOT gates", (n) => n.kind === "not_state"], ["term", "AND gates", (n) => n.kind === "term"],
+    ["trel", "Delay neurons", isTermLine], ["nor", "Inh.-based OR", (n) => n.kind === "nor"],
     ["latch", "Latches", (n) => n.kind === "latch", LATCH_DX / 2], ["out", "Output", (n) => n.kind === "output"],
   ];
   return { X, bands, groups, H: Math.max(y, 200), headerCols };
@@ -339,10 +339,10 @@ function netPlaceParallel(net, nodes, all, shift = 0) {
     y += h;
   }
   const headerCols = [
-    ["src", "Inputs", (n) => n.src], ["rel", "Alt. OR ⩒", (n) => n.kind === "relay" && n.x === X.rel], ["op", "OP", (n) => n.kind === "op"],
-    ["gate", "OP + 1 · Ā+3", (n) => n.kind === "delay" || n.kind === "not_input"],
-    ["notst", "Guards · S̄", (n) => n.kind === "not_state"], ["term", "AND gates", (n) => n.kind === "term"],
-    ["trel", "Delay +1", isTermLine], ["nor", "Inh.-based OR ⊽", (n) => n.kind === "nor"],
+    ["src", "Inputs", (n) => n.src], ["rel", "Alt. OR", (n) => n.kind === "relay" && n.x === X.rel], ["op", "OP", (n) => n.kind === "op"],
+    ["gate", "OP + 1 · NOT gates", (n) => n.kind === "delay" || n.kind === "not_input"],
+    ["notst", "Guards · NOT gates", (n) => n.kind === "not_state"], ["term", "AND gates", (n) => n.kind === "term"],
+    ["trel", "Delay neurons", isTermLine], ["nor", "Inh.-based OR", (n) => n.kind === "nor"],
     ["latch", "Latches", (n) => n.kind === "latch", LATCH_DX / 2], ["out", "Output", (n) => n.kind === "output"],
   ];
   return { X, bands, groups, H: Math.max(y, 200), headerCols, tboxes };
@@ -703,9 +703,9 @@ function netName(n) {
   switch (n.kind) {
     case "input": return `Input ${n.label}`;
     case "init": return "Initialisation";
-    case "relay": return isRelayTap(n) ? `Delay neuron ${n.input} + 1 · input neuron of the Alt. OR (⩒)`
-      : `Alt. OR (⩒) · input neuron ${n.input}`;
-    case "op": return "OP: Alt. OR (⩒) of the inputs + 2";
+    case "relay": return isRelayTap(n) ? `Delay neuron ${n.input} + 1 · input neuron of the Alt. OR`
+      : `Alt. OR · input neuron ${n.input}`;
+    case "op": return "OP: Alt. OR of the inputs + 2";
     case "delay": return "Delay neuron OP + 1";
     case "delay_line": return `Delay neuron ${delayName(n)}`;
     case "term_relay": return `Delay neuron ${termTitle(n)} + 1`;
@@ -713,7 +713,7 @@ function netName(n) {
     case "not_input": return `NOT gate ${l[0]} (input ${notName(n)} 3 steps later, negated)`;
     case "not_state": return `NOT gate ${l[0]}`;
     case "no_event": case "no_prev": return `Bypass guard ${l[0]}`;
-    case "nor": return `NOR gate (⊽) of the Inh.-based OR · ${n.role === "output" ? "Output" : "Set " + stName(n.sid)}`;
+    case "nor": return `NOR gate of the Inh.-based OR · ${n.role === "output" ? "Output" : "Set " + stName(n.sid)}`;
     case "output": return "Output (pattern found)";
     case "term": return n.via ? `AND gate ${termTitle(n)} · ${cond ? optionText(cond) : ""} · ${l[0]}`
       : `AND gate ${l[0]} · ${l[1]}`;
@@ -756,7 +756,7 @@ function synRole(e) {
         if (ex) return P.kind === "term" ? "Set (OR gate of exclusive inputs)" : "operation signal of the Inh.-based OR (OP + 3)";
         if (P.key === Q.key) return "self-inhibition";
         if (P.kind === "latch") return "the state is already active";
-        if (P.kind === "nor") return "Inh.-based OR: no entering transition (⊽)";
+        if (P.kind === "nor") return "Inh.-based OR: no entering transition";
         return "cancels a Set still pending";
       }
       if (ex) return P.kind === "init" ? "active at start" : P.j === 0 ? "Set → ring" : "ring";
@@ -902,7 +902,7 @@ function renderNetCounts() {
     ${row("Neurons", nSub, sel && sel.neurons + sel.sources, c.neurons + c.sources)}
     ${row("Synapses", sSub, sel && sel.synapses, c.synapses)}</div>
     <p class="note set-mode">${netData.setMode === "inhibition"
-      ? "Inh.-based OR gates (⊽): some state can be entered by two AND gates at once, or left and entered at once."
+      ? "Inh.-based OR gates: some state can be entered by two AND gates at once, or left and entered at once."
       : "Direct OR gates: the AND gates that enter each state never fire together, so its Set neuron is excited by them directly."}</p>`;
 }
 function netSelDetails(el) {
