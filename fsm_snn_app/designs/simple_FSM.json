@@ -53,21 +53,21 @@
       "id": "s0",
       "name": "S0",
       "x": 396,
-      "y": 132,
+      "y": -682,
       "initial": true
     },
     {
       "id": "s1",
       "name": "S1",
       "x": 506,
-      "y": 352,
+      "y": -462,
       "initial": false
     },
     {
       "id": "s2",
       "name": "S2",
       "x": 264,
-      "y": 352,
+      "y": -462,
       "initial": false
     }
   ],

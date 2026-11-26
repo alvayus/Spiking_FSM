@@ -4,3 +4,7 @@
 __pycache__/
 /.venv/
 /fsm_snn_app/_site/
+
+# revised manuscript (under review): kept local
+docs/manuscript_revised.pdf
+docs/manuscript_revised.txt
