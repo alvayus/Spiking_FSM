@@ -54,20 +54,20 @@ const NET_DESC = {
   ring: "Ring neuron (N2 / N3) of the latch (Fig. 1d): the two ring neurons excite each other, so the state is active while they keep spiking. The AND gates that leave the state inhibit them (Reset).",
   output: "Output: the OR gate of the AND gates that enter states marked as accepting (pattern found). Excited by them directly when they never fire together, else an Inh.-based OR (⊽).",
 };
-// Neuron types that can be shown or hidden (the coloured checkboxes double as legend),
-// with when they spike after input spikes at step t (from the timing of the network shown).
+// Neuron types that can be shown or hidden (the coloured checkboxes double as legend):
+// the name of the component and, in brackets, the symbol drawn inside its neurons.
 function netGroups() {
-  const tm = (netData && netData.timing) || { set_step: 5, output_latency: 5 }, par = archOf() === "parallel";
+  const par = archOf() === "parallel";
   return [
-    ["source", "Spike sources (inputs, init)", ["input", "init"], "t"],
-    ["op", "Alt. OR ⩒ (OP)", ["relay", "op"], "t + 1, OP t + 2"],
-    ["delay", "Delay neurons", ["delay", "delay_line", "term_relay", "reset_relay"], "+1 step each"],
-    ["not", "NOT gates (Ā+3, S̄)", ["not_input", "not_state"], "t + 3"],
-  ].concat(par ? [["noevent", "Bypass guards", ["no_event", "no_prev"], "t + 3"]] : [], [
-    ["term", par ? "AND gates (up to 3 per transition)" : "AND gates (transitions)", ["term"], "t + 4"],
-    ["nor", "Inh.-based OR ⊽ (NOR gates)", ["nor"], "t + 5"],
-    ["latch", "Latches (states)", ["latch"], `Set t + ${tm.set_step}, active t + ${tm.set_step + 1}`],
-    ["output", "Output", ["output"], `t + ${tm.output_latency}`],
+    ["source", "Spike sources", ["input", "init"]],
+    ["op", "Alt. OR (⩒)", ["relay", "op"]],
+    ["delay", "Delay neurons", ["delay", "delay_line", "term_relay", "reset_relay"]],
+    ["not", "NOT gates (¬)", ["not_input", "not_state"]],
+  ].concat(par ? [["noevent", "Bypass guards (∧)", ["no_event", "no_prev"]]] : [], [
+    ["term", "AND gates (∧)", ["term"]],
+    ["nor", "Inh.-based OR (⊽)", ["nor"]],
+    ["latch", "Latches", ["latch"]],
+    ["output", "Output (∨)", ["output"]],
   ]);
 }
 const netHidden = new Set();       // hidden neuron kinds
@@ -641,6 +641,13 @@ const delayName = (n) => {                     // A +3, OP +2...
   const base = n.label.replace(/ \+\d+$/, "");
   return `${base} + ${n.k}`;
 };
+// a list of names joined by an operator, shortened when long (A ∨ B ∨ … ∨ F)
+const joinOp = (xs, op) => (xs.length > 4 ? [xs[0], xs[1], "…", xs[xs.length - 1]] : xs).join(` ${op} `);
+const tIndex = (tid) => spec.transitions.findIndex((t) => t.id === tid);
+const tNames = (pred) => spec.transitions.map((t, i) => (pred(t) ? `T${i}` : null)).filter(Boolean);
+const notName = (n) => n.label.replace(/^NOT /, "");
+// Inside a neuron: the name of the signal it carries (A+2, OP, N1) or the symbol of the gate it
+// is (¬, ∧, ⩒, ⊽, ∨); below it (above, for the AND gates), the expression it computes or uses.
 function netGlyph(n) {
   if (n.kind === "input") return n.label.length <= 3 ? n.label : n.label.slice(0, 2) + "…";
   if (n.kind === "init") return "init";
@@ -649,45 +656,42 @@ function netGlyph(n) {
   // the name of a delay neuron fits inside it when short (no label below, which wires would cross)
   if (n.kind === "delay_line") return n.label.replace(" ", "").length <= 6 ? n.label.replace(" ", "") : "+" + n.k;
   if (isTermLine(n)) return "+1";
-  if (n.kind === "not_input") {             // the input 3 steps later, negated
-    const b = bar(n.label.replace(/^NOT /, ""));
-    return b.length <= 3 ? b + "+3" : "¬";
-  }
-  if (n.kind === "not_state") {
-    const b = bar(n.label.replace(/^NOT /, ""));
-    return b.length <= 4 ? b : "¬";
-  }
-  if (n.kind === "no_event" || n.kind === "no_prev") return "g";
+  if (n.kind === "not_input" || n.kind === "not_state") return "¬";
+  if (n.kind === "no_event" || n.kind === "no_prev") return "∧";
   if (n.kind === "nor") return "⊽";
   if (n.kind === "relay") return isRelayTap(n) ? (n.input.length <= 3 ? n.input + "+1" : "+1") : "⩒";
   if (n.kind === "term") return "∧";
   if (n.kind === "latch") return "N" + (n.j + 1);
-  return "Out";
+  return "∨";
 }
 function netLabelLines(n) {
   if (n.kind === "input" && n.label.length > 3) return [n.label];
-  if (n.kind === "not_input") {
-    const b = bar(n.label.replace(/^NOT /, ""));
-    return b.length <= 3 ? [] : [b + " +3"];
-  }
-  if (n.kind === "not_state") {
-    const b = bar(n.label.replace(/^NOT /, ""));
-    return b.length <= 4 ? [] : [b];
-  }
+  if (n.kind === "not_input") return [`${bar(notName(n))}+3`];          // the input 3 steps later, negated
+  if (n.kind === "not_state") return [bar(notName(n))];
   if (n.kind === "delay") return [];
-  if (isTermLine(n)) return [];
+  if (n.kind === "term_relay") return [`T${tIndex(n.tid)}+1`];
+  if (n.kind === "reset_relay") return [`Reset ${stName(n.sid)}+1`];
   if (n.kind === "delay_line") return n.label.replace(" ", "").length <= 6 ? [] : [n.label];
   if (n.kind === "no_event") return ["¬OP(t) ∧ OP(t−1)"];
   if (n.kind === "no_prev") return ["OP(t) ∧ ¬OP(t−2)"];
-  if (n.kind === "nor") return [n.role === "output" ? "Inh.-based OR · Output" : `Inh.-based OR · Set ${stName(n.sid)}`];
-  if (n.kind === "relay") return isRelayTap(n) ? ["Alt. OR input of OP"] : [n.input || n.label];
-  if (n.kind === "op") return ["Alt. OR, inputs +2"];
-  if (n.kind === "output") return ["Output"];
+  if (n.kind === "nor") {
+    const ts = n.role === "output" ? tNames((t) => (spec.states.find((x) => x.id === t.to) || {}).accepting)
+      : tNames((t) => t.to === n.sid);
+    return [`¬(${joinOp(ts, "∨")})`];
+  }
+  if (n.kind === "relay") {
+    if (isRelayTap(n)) return [];
+    const before = spec.inputs.slice(0, spec.inputs.indexOf(n.input));
+    return [[n.input].concat(before.length > 2 ? [`¬(${joinOp(before, "∨")})`] : before.map((x) => "¬" + x)).join(" ∧ ")];
+  }
+  if (n.kind === "op") return [joinOp(spec.inputs, "∨")];
+  if (n.kind === "output") return [joinOp(tNames((t) => (spec.states.find((x) => x.id === t.to) || {}).accepting), "∨")];
   if (n.kind === "term") {
     const t = transById(n.tid);
     const cond = n.cond || (t ? t.options[n.k] : null);
     if (n.via) return [VIA_LABEL[n.via] || n.via];          // parallel: the box of the transition has its name
-    return [termTitle(n), cond ? optionText(cond) : ""];
+    const lits = cond && Object.keys(cond).length ? optionText(cond) : "";
+    return [termTitle(n), t ? [stName(t.from), lits].filter(Boolean).join(" ∧ ") : lits];
   }
   return [];
 }
@@ -706,8 +710,8 @@ function netName(n) {
     case "delay_line": return `Delay neuron ${delayName(n)}`;
     case "term_relay": return `Delay neuron ${termTitle(n)} + 1`;
     case "reset_relay": return `Delay neuron Reset ${stName(n.sid)} + 1`;
-    case "not_input": return `NOT gate ${l[0] || g} (input ${n.label.replace(/^NOT /, "")} 3 steps later, negated)`;
-    case "not_state": return `NOT gate ${l[0] || g}`;
+    case "not_input": return `NOT gate ${l[0]} (input ${notName(n)} 3 steps later, negated)`;
+    case "not_state": return `NOT gate ${l[0]}`;
     case "no_event": case "no_prev": return `Bypass guard ${l[0]}`;
     case "nor": return `NOR gate (⊽) of the Inh.-based OR · ${n.role === "output" ? "Output" : "Set " + stName(n.sid)}`;
     case "output": return "Output (pattern found)";
@@ -1196,9 +1200,9 @@ function initNetwork() {
 // one checkbox per neuron type present in the network, with its colour
 function renderNetKinds() {
   const present = new Set(Object.values(netData.nodes).map((n) => n.kind));
-  $("#netKinds").innerHTML = netGroups().filter(([, , kinds]) => kinds.some((k) => present.has(k))).map(([id, label, kinds, when]) => {
+  $("#netKinds").innerHTML = netGroups().filter(([, , kinds]) => kinds.some((k) => present.has(k))).map(([id, label, kinds]) => {
     const st = NET_STYLE[kinds.find((k) => present.has(k)) || kinds[0]];
     return `<label class="chk"><input type="checkbox" data-group="${id}" ${netHidden.has(kinds[0]) ? "" : "checked"}>
-      <i class="dot${id === "source" ? " sq" : ""}" style="background:${st.fill};border-color:${st.stroke}"></i>${label}<span class="when">${when}</span></label>`;
+      <i class="dot${id === "source" ? " sq" : ""}" style="background:${st.fill};border-color:${st.stroke}"></i>${label}</label>`;
   }).join("");
 }
