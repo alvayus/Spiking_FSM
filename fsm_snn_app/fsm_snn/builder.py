@@ -483,8 +483,8 @@ class _Builder:
         all negated in it: its input neuron of the Alt. OR, which fires when it spikes and none
         of the earlier inputs do, is then the input one step later for this term."""
         ins = self.s["inputs"]
-        return next((i for i, v in opt.items()
-                     if v == ON and all(opt.get(j) == OFF for j in ins[:ins.index(i)])), None)
+        return next((i for i, v in opt.items()       # (the first input's neuron is already its +1)
+                     if v == ON and ins.index(i) and all(opt.get(j) == OFF for j in ins[:ins.index(i)])), None)
 
     def excite(self, n, opt, use_driver=True):
         """Excitation of an AND gate (e + T_TERM): its first positive input, or OP + 1.
@@ -540,8 +540,8 @@ class _Builder:
             self.con(self.N(n1), n1, "inh", 1)
             self.con(self.N(a), n1, "inh", 1)
             self.con(self.N(b), n1, "inh", 1)
-            if st["initial"]:                                    # active at start: straight into the ring
-                self.con(("src", net.init_source), a, "exc", 1)
+            if st["initial"]:                                    # active at start: init sets it (N1)
+                self.con(("src", net.init_source), n1, "exc", 1)
         if not self.trans:
             return
         self.not_st = {}

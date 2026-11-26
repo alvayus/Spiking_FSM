@@ -60,7 +60,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tab.active { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 .tab.active .num { background: var(--accent); color: #fff; }
 .tab-label { white-space: nowrap; }
-.topbar-end { min-width: 250px; }                      /* keeps the tabs centred */
+.topbar-end { min-width: 250px; display: flex; justify-content: flex-end; }   /* keeps the tabs centred */
+.design-name { max-width: 300px; text-align: right; line-height: 1.25; }
+.design-name b { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.design-name span { display: block; font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-name { align-self: center; max-width: 220px; margin: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
 .split { position: relative; display: flex; }
 .split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
@@ -295,7 +298,10 @@ details.card[open] > summary { margin-bottom: 10px; }
 /* ---------------------------------------------------------------- network tab */
 .net { flex: 1; width: 100%; outline: none; background: #fbfcfd; cursor: grab; }
 .net-empty { position: absolute; inset: 0; margin: 0; display: grid; place-content: center; padding: 20px; pointer-events: none; }
-.net .col-head { font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; text-anchor: middle; fill: var(--muted); }
+.net .col-head { font-size: 13px; font-weight: 700; letter-spacing: .3px; text-anchor: middle; fill: var(--muted); }
+.net .col-sub { font-size: 10px; text-anchor: middle; fill: var(--muted); }
+.net .step-band { fill: rgba(148,163,184,.08); pointer-events: none; }
+.net .step-sep { stroke: rgba(100,116,139,.6); stroke-width: 1.3; stroke-dasharray: 2 4.5; stroke-linecap: round; pointer-events: none; }
 .net .latch-box { fill: rgba(213,232,212,.25); stroke: var(--state-stroke); stroke-dasharray: 5 4; }
 .net .latch-name { font-size: 11px; font-weight: 700; fill: #3f6b2f; }
 .net .term-box { fill: rgba(225,213,231,.22); stroke: #9673a6; stroke-dasharray: 4 3; }
@@ -305,7 +311,7 @@ details.card[open] > summary { margin-bottom: 10px; }
 .net .nn .nb { stroke-width: 2; }
 .net .nn .ng { font-weight: 700; text-anchor: middle; dominant-baseline: central; fill: var(--ink); pointer-events: none; }
 .net .nn .nl { font-size: 10px; text-anchor: middle; fill: #334155; pointer-events: none; }
-.net .col-head[data-lbl], .net .latch-name[data-lbl], .net .term-name[data-lbl], .net .nn .nl[data-lbl] { pointer-events: auto; cursor: text; }
+.net .col-head[data-lbl], .net .col-sub[data-lbl], .net .latch-name[data-lbl], .net .term-name[data-lbl], .net .nn .nl[data-lbl] { pointer-events: auto; cursor: text; }
 .net-edit {
   position: absolute; z-index: 5; transform: translateY(-50%); padding: 3px 6px;
   border: 1.5px solid var(--accent); border-radius: 6px; background: #fff; box-shadow: 0 2px 10px rgba(15,23,42,.18);
@@ -492,7 +498,10 @@ table.tbl tr.bad td { background: #fff3f3; }
 /* tablets in portrait and phones: one column, the page scrolls */
 @media (max-width: 900px) {
   .topbar { flex-wrap: wrap; gap: 6px 12px; height: auto; padding: 8px 12px; }
-  .topbar-end { display: none; }
+  .topbar-end { order: 3; width: 100%; min-width: 0; justify-content: center; }
+  .design-name { max-width: 100%; text-align: center; }
+  .design-name b, .design-name span { display: inline; }
+  .design-name span::before { content: " · "; }
   .tabs { margin: 0; overflow-x: auto; scrollbar-width: none; }
   main { height: auto; }
   .tabpane.active { flex-direction: column; }

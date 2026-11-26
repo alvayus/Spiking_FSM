@@ -36,7 +36,7 @@ const NET_STYLE = {
 };
 const NET_DESC = {
   input: "Spike source of an input signal. It excites its input neuron of the Alt. OR and inhibits those of the inputs after it, the NOT gate of the input and the AND gates in which the input appears negated. Delayed by delay neurons, it also excites the AND gates in which it is the first positive input.",
-  init: "Spike source with a single spike at the start: it starts the ring of the latches of the states that are active at start.",
+  init: "Spike source with a single spike at the start: it sets (N1) the latches of the states that are active at start, like any other Set.",
   op: "OP, the output of the Alt. OR (alternative OR gate) of the inputs (spiking ALU, Fig. 6; complex case of the manuscript): it spikes two steps after any input spikes (inputs +2), and is the operation signal of the NOT and NOR gates and of the delay neuron of the AND gates. At most one of its input neurons fires at a time, so it is never overexcited.",
   relay: "Input neuron of the Alt. OR (the alternative OR gate of ALU Fig. 6): excited by its input and inhibited by the inputs before it, so when several inputs spike together only the first one excites OP (on Dynap-SE, a neuron that receives two excitatory spikes at once stops firing). The Alt. OR needs no operation signal, unlike the Inh.-based OR. The input neuron of the first input is never inhibited, so it is also that input one step later (A+1): the delay chain of A continues from it.",
   delay: "Delay neuron of the AND gates (OP + 1), the yellow neuron of Fig. 1c: it excites the AND gates that have no positive input.",
@@ -71,17 +71,13 @@ function netGroups() {
 const netHidden = new Set();       // hidden neuron kinds
 const NR = 15;                     // neuron radius
 const GAP = 1.5;                   // space between the end of a synapse and the neuron it reaches
-const COLX = { src: 0, rel: 150, op: 290, gate: 450, notst: 620, term: 810, trel: 940, nor: 1050, latch: 1190, out: 1420 };
 // parallel: the cases of the AND gates of a term (shown in a box with the name of the term)
 const VIA_LABEL = { latch: "latch", "bypass 1": "bypass t−1" };
 const TERM_GAP = 44;               // extra space between the boxes of two terms
-const DL_DX = 110;                 // columns of the delay lines of the inputs (input -> +1 -> +2)
-// parallel: as pipelined, plus a corridor for the bypasses after the AND gates
-const COLP = { src: 0, rel: 150, op: 290, gate: 450, notst: 620, term: 810, trel: 970, nor: 1080, latch: 1220, out: 1450 };
 const TREL_DY = 50;                // vertical spacing of the +1 of the AND gates entering a state
 const BYPASS_LANE = 8;             // spacing of the bypass lanes (two per state)
 const ROW_P = 84;                  // parallel: vertical spacing of the AND gates (labels above, bypasses below)
-const LATCH_DX = 84;               // ring neurons at COLX.latch, set neuron N1 to their right
+const LATCH_DX = 110;              // set neuron N1 (its step) and, one step later, the ring N2 ↔ N3
 const TERM_DY = 64;                // vertical spacing of stacked neurons
 const CLEAR = NR + 6;              // clearance a wire keeps from a neuron
 
@@ -134,7 +130,8 @@ function netKeyOf(s) {
 }
 
 // ------------------------------------------------------------------ layout
-function netLayout(net) {
+const LANE_MIN = 4.5;              // least distance between two vertical runs of a channel
+function netLayout(net, extra = {}, pass = 0) {
   const parallel = net.architecture === "parallel";
   const nodes = {};
   const add = (key, o) => (nodes[key] = { key, ...o });
@@ -161,51 +158,62 @@ function netLayout(net) {
   const all = Object.values(nodes);
   const place = parallel ? netPlaceParallel : netPlacePipelined;
   // delay lines of an input neuron of the Alt. OR (it is the input one step later for the AND
-  // gates that negate the inputs before it): they continue its input's row from "Inputs + 2"
+  // gates that negate the inputs before it): they continue its input's row
   const isRelayLine = (n) => n.kind === "delay_line" && n.base && n.base[0] === "n" && nodes["n" + n.base[1]].kind === "relay";
-  const dlK = Math.max(0, ...all.filter((n) => n.kind === "delay_line" && n.base && n.base[0] === "src").map((n) => n.k),
-    ...all.filter(isRelayLine).map((n) => n.k + 1));
-  const shift = dlK * DL_DX;
-  // delay lines of neurons (OP + 2, ...): on the row of the delay neuron (OP + 1), one column per step
+  const isSrcLine = (n) => n.kind === "delay_line" && n.base && n.base[0] === "src";
+  const lineStep = (n) => (isSrcLine(n) ? n.k : isRelayLine(n) ? n.k + 1 : null);
+  // delay lines of OP (OP + 2, ...): above the states, in the column of their step
   const isOpLine = (n) => n.kind === "delay_line" && n.base && n.base[0] === "n" && nodes["n" + n.base[1]].kind === "op";
-  const { X, bands, groups, H, headerCols, tboxes = [] } = place(net, nodes, all, shift);
+  // input neurons of the Alt. OR that are also their input one step later (they sit on its row,
+  // in the column "Inputs + 1"): that of the first input when its delay line goes on, and one
+  // whose own delay line feeds AND gates when its input has no +1
+  const inputOf = (R) => all.find((m) => m.src && m.kind === "input" && m.label === R.input);
+  const srcLineOf = (R, k) => all.some((m) => isSrcLine(m) && nodes["s" + m.base[1]] === inputOf(R) && (k === undefined || m.k === k));
+  const asInput1 = new Set(all.filter((R) => R.kind === "relay" && (R.tap ? srcLineOf(R)
+    : all.some((m) => isRelayLine(m) && m.k === 1 && nodes["n" + m.base[1]] === R) && !srcLineOf(R, 1))));
+  const { X, steps } = netColumns(net, all, parallel, isOpLine, lineStep, asInput1, extra);
+  const { bands, groups, H, tboxes = [] } = place(net, nodes, all, X);
   const mid = H / 2;
   const stack = (list, x, dy) => list.forEach((n, k) => Object.assign(n, { x, y: mid + (k - (list.length - 1) / 2) * dy }));
   stack(all.filter((n) => n.src), X.src, 70);
-  // delay lines of the inputs on the row of their input (input -> +1 -> +2), one column per
-  // step; the others (OP + 2, ...) under the delay neuron
-  for (const n of all) if (n.kind === "delay_line" && n.base && n.base[0] === "src") {
-    const b = nodes["s" + n.base[1]];
-    Object.assign(n, { x: X.src + DL_DX * n.k, y: b.y, major: X.src + DL_DX * n.k });
-  }
   stack(all.filter((n) => n.kind === "op"), X.op, 70);
-  // with a single input OP is also that input + 2: the input + 3 then follows OP
-  if (net.op != null && nodes["n" + net.op]) for (const e of net.conns) {
-    const P = e[0][0] === "n" ? nodes["n" + e[0][1]] : null, Q = nodes["n" + e[1]];
-    if (P && P.kind === "op" && Q.kind === "delay_line" && Q.base && Q.base[0] === "src") {
-      const x = (X.op + X.gate) / 2;
-      Object.assign(Q, { x, major: x });
+  {   // OP between the rows of the inputs, so that their delay lines pass it by
+    const op = all.find((n) => n.kind === "op"), rows = all.filter((n) => n.src && n.kind === "input").map((n) => n.y);
+    if (op && rows.length) {
+      let y = (Math.min(...rows) + Math.max(...rows)) / 2;
+      if (rows.some((r) => Math.abs(r - y) < 20)) y += 35;
+      op.y = y;
     }
   }
-  // input neurons of the alternative OR gate: in their own column, between the rows of the
-  // inputs; one that is also the input one step later sits in the column "Inputs +1", on its row
-  all.filter((n) => n.kind === "relay").forEach((n, k, l) => Object.assign(n, { x: X.rel, y: mid + (k - (l.length - 1) / 2) * 70 + 35 }));
-  for (const n of all) if (n.kind === "relay" && n.tap && dlK >= 1) {
+  // delay lines of the inputs on the row of their input (input -> +1 -> +2 -> +3), each in the
+  // column of its step
+  const lineX = (k) => X["in" + Math.min(k, 3)] + Math.max(0, k - 3) * 110;
+  for (const n of all) if (isSrcLine(n)) {
+    const b = nodes["s" + n.base[1]];
+    Object.assign(n, { x: lineX(n.k), y: b.y, major: lineX(n.k) });
+  }
+  // input neurons of the alternative OR gate (step 1): between the rows of the inputs; one that
+  // is also the input one step later sits on its input's row
+  all.filter((n) => n.kind === "relay").forEach((n, k, l) => {
     const src = all.find((m) => m.src && m.kind === "input" && m.label === n.input);
-    if (src) Object.assign(n, { x: X.src + DL_DX, y: src.y, major: X.src + DL_DX, asDelay: true });
+    Object.assign(n, { x: X.rel, y: (src ? src.y : mid + (k - (l.length - 1) / 2) * 70) + 35 });
+  });
+  for (const n of all) if (n.kind === "relay" && n.tap) {
+    const src = all.find((m) => m.src && m.kind === "input" && m.label === n.input);
+    if (src && all.some((m) => isSrcLine(m) && nodes["s" + m.base[1]] === src)) Object.assign(n, { x: X.in1, y: src.y, major: X.in1, asDelay: true });
   }
   for (const n of all.filter(isRelayLine)) {
     const R = nodes["n" + n.base[1]], src = all.find((m) => m.src && m.kind === "input" && m.label === R.input);
     if (!src) continue;
-    const k = n.k + 1, raw = (j) => all.some((m) => m.kind === "delay_line" && m.base && m.base[0] === "src" && m.k === j && nodes["s" + m.base[1]] === src);
-    Object.assign(n, { x: X.src + DL_DX * k, y: src.y + (raw(k) ? 32 : 0), major: X.src + DL_DX * k });
-    if (n.k === 1 && !R.tap && !raw(1)) Object.assign(R, { x: X.src + DL_DX, y: src.y, major: X.src + DL_DX });
+    const k = n.k + 1, raw = (j) => all.some((m) => isSrcLine(m) && m.k === j && nodes["s" + m.base[1]] === src);
+    Object.assign(n, { x: lineX(k), y: src.y + (raw(k) ? 32 : 0), major: lineX(k) });
+    if (n.k === 1 && !R.tap && !raw(1)) Object.assign(R, { x: X.in1, y: src.y, major: X.in1 });
   }
-  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input")), X.gate, 56);
+  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input")), X.gate, 56);  stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input")), X.gate, 56);
   // delay lines of OP (OP + 2 drives the NOR gates, OP + 3 the outputs of the ORs): above the
   // states, in the columns before them, so they reach them from above
   for (const n of all.filter(isOpLine)) {
-    const x = n.k === 1 ? X.gate : n.k === 2 ? X.trel : X.nor;
+    const x = n.k === 1 ? X.gate : n.k === 2 ? X.term : X.trel;
     Object.assign(n, { x, y: -70, major: x });
   }
   // "no input spikes now" gates (parallel): in the column of the NOT gates of the states, above
@@ -236,22 +244,103 @@ function netLayout(net) {
     else e.type = "local";
     return e;
   });
-  routeWires(edges.filter((e) => e.type === "wire"), nodes, all);
-  if (parallel) routeBypassBus(edges.filter((e) => e.type === "bypassBus"), nodes, X);
+  for (const e of edges) if (e.type === "bypassBus" && e.rec === "exc") nodes[e.to].busIn = true;
+  // first the synapses with fixed routes (corridor, folds back to the NOT gates, latches), then
+  // the wires, which keep off their lanes and their horizontal runs
+  const lanes = {}, sigs = corridorSignals(net, all);
+  sigs.forEach((k, i) => (lanes[k] = X.term + NR + 22 + BYPASS_LANE * i));
+  if (parallel) routeBypassBus(edges.filter((e) => e.type === "bypassBus"), nodes, lanes);
   routeEnterFold(edges.filter((e) => e.type === "enterFold"), nodes, X);
-  routeNotFold(edges.filter((e) => e.type === "notFold"), nodes, X);
+  routeNotFold(edges.filter((e) => e.type === "notFold"), nodes, lanes);
+  routeLatchArcs(edges.filter((e) => e.type === "arcTop" || e.type === "arcBottom"), nodes);
+  notBottoms(edges, nodes);
+  const obstacles = [];
+  for (const e of edges) if (e.type !== "wire" && e.points) for (let k = 1; k < e.points.length; k++) {
+    const a = e.points[k - 1], b = e.points[k];
+    if (Math.abs(a[1] - b[1]) < 0.5) obstacles.push({ y: a[1], x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]), from: e.from, rec: e.rec });
+  }
+  const limits = { after: {}, before: {} };
+  if (parallel && sigs.length) limits.after[X.term] = X.term + NR + 22 + BYPASS_LANE * sigs.length + 4;
+  const folds = edges.filter((e) => e.type === "enterFold");
+  if (folds.length) limits.before[X.trel] = Math.min(...folds.map((e) => e.laneX)) - 6;
+  const chans = routeWires(edges.filter((e) => e.type === "wire"), nodes, all, obstacles, limits);
+  // a channel with too many vertical runs for its width: widen it and lay out again
+  const more = { ...extra };
+  let grow = false;
+  for (const { left, n, lo, hi } of chans) {
+    const need = (n - 1) * LANE_MIN - (hi - lo);
+    const c = Object.keys(X).filter((k) => X[k] <= left + 0.5).sort((p, q) => X[q] - X[p])[0];
+    if (need > 1 && c) { more[c] = (more[c] || 0) + Math.ceil(need); grow = true; }
+  }
+  if (grow && pass < 3) return netLayout(net, more, pass + 1);
 
   const xs = all.map((n) => n.x), ys = all.map((n) => n.y);
-  const box = { x0: Math.min(...xs) - 50, y0: Math.min(0, ...ys) - 50, x1: Math.max(...xs) + 90, y1: Math.max(H, ...ys) + 40 };
-  const used = (k) => all.some(k);
-  const headers = headerCols.filter((h) => used(h[2])).map(([c, text, , dx = 0]) => ({ c, x: X[c] + dx, y: box.y0 + 14, text }));
-  for (let k = 1; k <= dlK; k++) if (all.some((n) => n.major === X.src + DL_DX * k))
-    headers.push({ c: "dl" + k, x: X.src + DL_DX * k, y: box.y0 + 14, text: `Inputs +${k}` });
-  return { nodes, edges, groups, headers, box, tboxes, timing: net.timing || {}, setMode: net.set_mode };
+  const box = { x0: Math.min(...xs) - 70, y0: Math.min(0, ...ys) - 66, x1: Math.max(...xs) + 90, y1: Math.max(H, ...ys) + 40 };
+  // one header per step (t + k) and, under it, the kind of neurons of each of its columns;
+  // light bands mark the steps
+  const headers = [], bandsX = [];
+  steps.forEach((st, i) => {
+    const a = st.slots[0].x, b = st.slots[st.slots.length - 1].x;
+    headers.push({ c: "step" + st.k, x: (a + b) / 2, y: box.y0 + 14, text: st.k ? `t + ${st.k}` : "t" });
+    for (const sl of st.slots) headers.push({ c: sl.c, x: sl.x, y: box.y0 + 30, text: sl.label, sub: true });
+    const prev = steps[i - 1], next = steps[i + 1];
+    const x0 = prev ? (prev.slots[prev.slots.length - 1].x + a) / 2 : box.x0;     // a line separates the steps
+    const x1 = next ? (b + next.slots[0].x) / 2 : box.x1;
+    bandsX.push({ x0, x1, k: st.k });
+  });
+  return { nodes, edges, groups, headers, stepBands: bandsX, box, tboxes, timing: net.timing || {}, setMode: net.set_mode };
 }
 
-// every column but the inputs moves right by `shift` (room for the delay lines of the inputs)
-const shifted = (cols, shift) => Object.fromEntries(Object.entries(cols).map(([c, x]) => [c, c === "src" ? x : x + shift]));
+// Parallel: the signals that run along the corridor after the AND gates, one lane each (a
+// signal is a neuron and the kind of its synapses): the AND gates that go back to the NOT gate
+// of the state they enter, then the bypasses towards the AND gates.
+function corridorSignals(net, all) {
+  const kind = (ref) => (ref[0] === "src" ? "src" : all.find((n) => n.idx === ref[1])?.kind);
+  const fold = new Set(), bus = new Set();
+  for (const [pre, post, rec] of net.conns) {
+    const pk = kind(pre), qk = kind(["n", post]);
+    if (pk === "term" && qk === "not_state") fold.add(`${pre[1]}|fold`);
+    else if (qk === "term" && ["term", "latch", "term_relay", "reset_relay"].includes(pk)) bus.add(`${pre[1]}|${rec}`);
+  }
+  return [...fold, ...bus];
+}
+
+// Columns ordered by the step in which their neurons fire after input spikes at t: every
+// neuron of a column fires at the same step, and a step has one column per kind of neuron.
+// A column that would be empty takes no room.
+function netColumns(net, all, parallel, isOpLine, lineStep, asInput1, extra = {}) {
+  const tm = net.timing || {}, tSet = tm.set_step || 5;
+  const opK = (k) => (n) => isOpLine(n) && n.k === k;
+  const corridor = parallel ? 44 + BYPASS_LANE * corridorSignals(net, all).length : 0;
+  const slots = [   // id, step, room to the next column, kind of neurons, members
+    ["src", 0, 140, "Spike sources", (n) => n.src],
+    ["in1", 1, 120, all.some((n) => n.kind === "relay" && !asInput1.has(n)) ? "Inputs + 1" : "Alt. OR · inputs + 1",
+      (n) => lineStep(n) === 1 || asInput1.has(n)],
+    ["rel", 1, 130, "Alt. OR", (n) => n.kind === "relay" && !asInput1.has(n)],
+    ["in2", 2, 110, "Inputs + 2", (n) => lineStep(n) === 2],
+    ["op", 2, 130, "OP", (n) => n.kind === "op"],
+    ["in3", 3, 110, "Inputs + 3", (n) => lineStep(n) >= 3],
+    ["gate", 3, 170, "OP + 1 · NOT gates", (n) => n.kind === "delay" || n.kind === "not_input" || opK(1)(n)],
+    ["notst", 3, 190, parallel ? "Guard · NOT gates" : "NOT gates", (n) => n.kind === "not_state" || n.kind === "no_event"],
+    ["term", 4, (parallel ? 160 : 130) + corridor, "AND gates", (n) => n.kind === "term" || opK(2)(n)],
+    ["trel", 5, 110, "Delay neurons", (n) => isTermLine(n) || opK(3)(n)],
+    ["nor", tSet - 1, 140, "Inh.-based OR", (n) => n.kind === "nor" && n.role !== "output"],
+    ["n1", tSet, LATCH_DX, "Set (N1)", (n) => n.kind === "latch"],
+    ["latch", tSet + 1, 230, "Ring (N2 ↔ N3)", (n) => n.kind === "latch"],
+    ["out", tm.output_latency || tSet, 120, "Output", (n) => n.kind === "output"],
+  ];
+  const X = {}, steps = [];
+  let x = 0;
+  for (const [c, k, w, label, f] of slots) {
+    X[c] = x;
+    if (!all.some(f)) continue;
+    let st = steps[steps.length - 1];
+    if (!st || st.k !== k) steps.push((st = { k, slots: [] }));
+    st.slots.push({ c, x, label });
+    x += w + (extra[c] || 0);                          // wider where a channel needs more lanes
+  }
+  return { X, steps };
+}
 // the +1 of the AND gates of a term (it tells the state it entered, 3 steps later)
 const isTermLine = (n) => n.kind === "term_relay" || n.kind === "reset_relay";
 // The NOR of the set of a state and the +1 of the AND gates that enter it, in its band: the
@@ -269,8 +358,7 @@ const relSpan = (m) => (m ? 2 * (34 + TREL_DY * (m - 1) + 48) : 0);
 
 // Pipelined: one band per state with its NOT gate, the AND gates of its outgoing
 // transitions and its latch.
-function netPlacePipelined(net, nodes, all, shift = 0) {
-  const X = shifted(COLX, shift);
+function netPlacePipelined(net, nodes, all, X) {
   const notStateOf = {};
   for (const n of all) if (n.kind === "not_state") {
     const st = spec.states.find((s) => "NOT " + s.name === n.label);
@@ -287,31 +375,20 @@ function netPlacePipelined(net, nodes, all, shift = 0) {
     const [n1, n2, n3] = net.latches[st.id].map((i) => nodes["n" + i]);
     Object.assign(n2, { x: X.latch, y: cy - 38, major: X.latch });
     Object.assign(n3, { x: X.latch, y: cy + 38, major: X.latch });
-    Object.assign(n1, { x: X.latch + LATCH_DX, y: cy, major: X.latch });
-    groups.push({ x0: X.latch - 38, y0: cy - 88, x1: X.latch + LATCH_DX + 62, y1: cy + 72, label: st.name, initial: st.initial, sid: st.id });
+    Object.assign(n1, { x: X.n1, y: cy, major: X.n1 });
+    groups.push({ x0: X.n1 - 40, y0: cy - 92, x1: X.latch + NR + 30, y1: cy + 76, label: st.name, initial: st.initial, sid: st.id });
     if (notStateOf[st.id]) Object.assign(notStateOf[st.id], { x: X.notst, y: cy });
     terms.forEach((n, k) => Object.assign(n, { x: X.term, y: cy + (k - (terms.length - 1) / 2) * TERM_DY }));
     y += h;
   }
-  const headerCols = [
-    ["src", "Inputs", (n) => n.src], ["rel", "Alt. OR", (n) => n.kind === "relay" && n.x === X.rel], ["op", "OP", (n) => n.kind === "op"],
-    ["gate", "OP + 1 · NOT gates", (n) => n.kind === "delay" || n.kind === "not_input"],
-    ["notst", "NOT gates", (n) => n.kind === "not_state"], ["term", "AND gates", (n) => n.kind === "term"],
-    ["trel", "Delay neurons", isTermLine], ["nor", "Inh.-based OR", (n) => n.kind === "nor"],
-    ["latch", "Latches", (n) => n.kind === "latch", LATCH_DX / 2], ["out", "Output", (n) => n.kind === "output"],
-  ];
-  return { X, bands, groups, H: Math.max(y, 200), headerCols };
+  return { bands, groups, H: Math.max(y, 200) };
 }
 
-// Parallel: as pipelined (NOT gate, AND gates and latch per state), plus the OR gates
-// "set" / "reset" of each state and, between the AND gates and the OR gates, a
-// corridor with two bypass lanes per state.
-function netPlaceParallel(net, nodes, all, shift = 0) {
-  const X = shifted(COLP, shift);
+// Parallel: as pipelined (NOT gate, AND gates and latch per state), with the cases of each
+// term in a box; the corridor after the AND gates (one lane per signal) is room left by
+// netColumns.
+function netPlaceParallel(net, nodes, all, X) {
   const tboxes = [];
-  const withLanes = spec.states.filter((s) => all.some((n) => n.kind === "term" && n.from === s.id)).length;
-  const corridor = 40 + BYPASS_LANE * 2 * withLanes;
-  X.trel += corridor; X.nor += corridor; X.latch += corridor; X.out += corridor;
   const notStateOf = {};
   for (const n of all) if (n.kind === "not_state") {
     const st = spec.states.find((s) => "NOT " + s.name === n.label);
@@ -336,8 +413,8 @@ function netPlaceParallel(net, nodes, all, shift = 0) {
     const [n1, n2, n3] = net.latches[st.id].map((i) => nodes["n" + i]);
     Object.assign(n2, { x: X.latch, y: cy - 38, major: X.latch });
     Object.assign(n3, { x: X.latch, y: cy + 38, major: X.latch });
-    Object.assign(n1, { x: X.latch + LATCH_DX, y: cy, major: X.latch });
-    groups.push({ x0: X.latch - 38, y0: cy - 88, x1: X.latch + LATCH_DX + 62, y1: cy + 72, label: st.name, initial: st.initial, sid: st.id });
+    Object.assign(n1, { x: X.n1, y: cy, major: X.n1 });
+    groups.push({ x0: X.n1 - 40, y0: cy - 92, x1: X.latch + NR + 30, y1: cy + 76, label: st.name, initial: st.initial, sid: st.id });
     if (notStateOf[st.id]) Object.assign(notStateOf[st.id], { x: X.notst, y: cy });
     terms.forEach((n, k) => Object.assign(n, { x: X.term, y: cy + 15 + off[k] - span / 2 }));
     for (let a = 0; a < terms.length;) {                    // one box per term
@@ -348,73 +425,114 @@ function netPlaceParallel(net, nodes, all, shift = 0) {
     }
     y += h;
   }
-  const headerCols = [
-    ["src", "Inputs", (n) => n.src], ["rel", "Alt. OR", (n) => n.kind === "relay" && n.x === X.rel], ["op", "OP", (n) => n.kind === "op"],
-    ["gate", "OP + 1 · NOT gates", (n) => n.kind === "delay" || n.kind === "not_input"],
-    ["notst", "Guards · NOT gates", (n) => n.kind === "not_state"], ["term", "AND gates", (n) => n.kind === "term"],
-    ["trel", "Delay neurons", isTermLine], ["nor", "Inh.-based OR", (n) => n.kind === "nor"],
-    ["latch", "Latches", (n) => n.kind === "latch", LATCH_DX / 2], ["out", "Output", (n) => n.kind === "output"],
-  ];
-  return { X, bands, groups, H: Math.max(y, 200), headerCols, tboxes };
+  return { bands, groups, H: Math.max(y, 200), tboxes };
 }
 
-// Parallel: bypasses towards the AND gates, drawn like a bus with right angles. Each state
-// has two lanes in the corridor (excitatory and inhibitory bypasses towards the AND gates
-// leaving it). An AND gate sends its bypasses from below (left half), an OR gate from its
-// left side; every AND gate gets at most one head of each type: excitatory from the right
-// (below its outgoing synapses), inhibitory from below (right half).
-function routeBypassBus(edges, nodes, X) {
-  const states = spec.states.map((s) => s.id).filter((sid) => edges.some((e) => nodes[e.to].from === sid));
-  const lane = {};
-  states.forEach((sid, i) => {
-    lane[sid + "exc"] = X.term + NR + 26 + BYPASS_LANE * 2 * i;
-    lane[sid + "inh"] = X.term + NR + 26 + BYPASS_LANE * (2 * i + 1);
-  });
-  const dyExc = 11, sideExc = Math.sqrt(NR * NR - dyExc * dyExc), dxInh = 8, botInh = Math.sqrt(NR * NR - dxInh * dxInh);
+// Parallel: bypasses towards the AND gates, with right angles. Every signal (a neuron and the
+// kind of its synapses) has its own lane in the corridor, and reaches each AND gate at its own
+// point: excitatory ones on the lower right of its side, inhibitory ones from below, each at
+// its own height, so that no two signals share a line. An AND gate sends its own bypasses from
+// the lower left of its bottom, under those that arrive.
+const sideAt = (d) => Math.sqrt(Math.max(0, NR * NR - d * d));
+function routeBypassBus(edges, nodes, lanes) {
+  const laneOf = (e) => lanes[`${nodes[e.from].idx}|${e.rec}`];
+  const byQ = {};
+  for (const e of edges) (byQ[e.to] = byQ[e.to] || []).push(e);
+  const depth = {};                                      // how far below an AND gate its arrivals go
+  for (const [q, list] of Object.entries(byQ)) {
+    const Q = nodes[q];
+    const sigs = (rec) => [...new Set(list.filter((e) => e.rec === rec).map((e) => e.from))]
+      .sort((a, b) => lanes[`${nodes[a].idx}|${rec}`] - lanes[`${nodes[b].idx}|${rec}`]);
+    const exc = sigs("exc"), inh = sigs("inh");
+    for (const e of list) {
+      const x = laneOf(e);
+      if (e.rec === "exc") {                             // right side, the nearest lane highest
+        const k = exc.indexOf(e.from), m = exc.length;
+        const dy = m === 1 ? 7 : 3.5 + (NR - 4) * k / (m - 1);
+        e.points = [[x, Q.y + dy], [Q.x + sideAt(dy) + GAP, Q.y + dy]];
+        e.branchY = Q.y + dy;
+      } else {                                           // from below: the nearest lane deepest and leftmost
+        const r = inh.indexOf(e.from), m = inh.length;
+        const dx = m === 1 ? 7 : 12 * (m - 1 - r) / (m - 1), y = Q.y + NR + 6 + 4.5 * r;
+        e.points = [[x, y], [Q.x + dx, y], [Q.x + dx, Q.y + sideAt(dx) + GAP]];
+        e.branchY = y;
+      }
+    }
+    depth[q] = Q.busDepth = NR + 6 + 4.5 * Math.max(0, inh.length - 1);
+  }
   for (const e of edges) {
-    const P = nodes[e.from], Q = nodes[e.to], x = lane[Q.from + e.rec];
+    const P = nodes[e.from], x = laneOf(e);
     let start;
-    if (P.kind === "term") {
-      const dx = e.rec === "exc" ? -7 : -2, y1 = P.y + NR + (e.rec === "exc" ? 13 : 17);
-      start = [[P.x + dx, P.y + Math.sqrt(NR * NR - dx * dx)], [P.x + dx, y1], [x, y1]];
-    } else {                                              // NOR gates and +1 of AND gates, on the right of the lanes
-      const dy = e.rec === "exc" ? -6 : 6;
-      start = [[P.x - Math.sqrt(NR * NR - dy * dy) - 0.5, P.y + dy], [x, P.y + dy]];
+    if (P.kind === "term") {                             // from the lower left of its bottom
+      const dx = e.rec === "exc" ? -12 : -8.5, y1 = P.y + (depth[e.from] || NR) + (e.rec === "exc" ? 13 : 9);
+      start = [[P.x + dx, P.y + sideAt(dx)], [P.x + dx, y1], [x, y1]];
+    } else if (P.kind !== "latch") {                     // +1 of AND gates: from their bottom (their left takes what arrives)
+      const dx = e.rec === "exc" ? -6 : 2, y1 = P.y + NR + (e.rec === "exc" ? 14 : 9);
+      start = [[P.x + dx, P.y + sideAt(dx)], [P.x + dx, y1], [x, y1]];
+    } else {                                             // latches: from the outer part of their left
+      const dy = e.rec === "exc" ? -11 : 11;
+      start = [[P.x - sideAt(dy) - 0.5, P.y + dy], [x, P.y + dy]];
     }
-    if (e.rec === "exc") {
-      const y2 = Q.y + dyExc;
-      e.points = start.concat([[x, y2], [Q.x + sideExc + GAP, y2]]);
-    } else {
-      const y2 = Q.y + NR + 7;
-      e.points = start.concat([[x, y2], [Q.x + dxInh, y2], [Q.x + dxInh, Q.y + botInh + GAP]]);
-    }
-    e.lane = x; e.joinY = start[start.length - 1][1]; e.branchY = y2Of(e);
+    e.points = start.concat(e.points);
+    e.lane = x; e.joinY = start[start.length - 1][1];
   }
-  function y2Of(e) { return e.points[e.points.length - (e.rec === "exc" ? 2 : 3)][1]; }
 }
 
-// +1 of an AND gate -> NOT gate of the state it entered (3 steps before). It goes back:
-// left from the +1 to a lane beside its column, down to the bottom of the band, left under
-// the AND gates and up into the NOT gate (right half of its bottom; the latch arrives in the middle).
+// +1 of an AND gate -> NOT gate of the state it entered (3 steps before). It goes back: left
+// from the +1 to a lane of its own beside its column, down to the bottom of the band and left
+// into the NOT gate (notBottoms sets the last two runs).
 function routeEnterFold(edges, nodes, X) {
-  const dy = 10, side = Math.sqrt(NR * NR - dy * dy), dx = 8, bot = Math.sqrt(NR * NR - dx * dx);
+  const dy = 10, side = sideAt(dy);
+  const order = [...new Set(edges.map((e) => e.from))];
   for (const e of edges) {
-    const P = nodes[e.from], Q = nodes[e.to], xl = X.trel - NR - 16, yb = e.band.bottom - 30;
-    e.points = [[P.x - side - 0.5, P.y + dy], [xl, P.y + dy], [xl, yb], [Q.x + dx, yb], [Q.x + dx, Q.y + bot + GAP]];
+    const P = nodes[e.from], xl = X.trel - NR - 12 - 5 * order.indexOf(e.from);
+    e.points = [[P.x - side - 0.5, P.y + dy], [xl, P.y + dy]];
+    e.laneX = xl;
   }
 }
 
-// AND gate -> NOT gate of the state it enters (it entered 2 steps before): from below the AND
-// gate to a lane of its own in the corridor, along it to the bottom of the band of that state,
-// left under its AND gates and up into the NOT gate (left half of its bottom).
-function routeNotFold(edges, nodes, X) {
-  const dx = -8, bot = Math.sqrt(NR * NR - dx * dx);
-  const states = spec.states.map((s) => s.id);
+// AND gate -> NOT gate of the state it enters (it entered 2 steps before): from the lower
+// left of the AND gate to a lane of its own in the corridor, down to the bottom of the band
+// and left into the NOT gate (notBottoms sets the last two runs).
+function routeNotFold(edges, nodes, lanes) {
+  for (const e of edges) {
+    const P = nodes[e.from], x = lanes[`${P.idx}|fold`], dx = -5;
+    const y1 = P.y + (P.busDepth || NR) + 5;                // above its own bypasses, under what arrives
+    e.points = [[P.x + dx, P.y + sideAt(dx)], [P.x + dx, y1], [x, y1]];
+    e.laneX = x;
+  }
+}
+
+// Latch -> NOT gate of its state: N2 from its right, up over the band; N1 (bottom left) and
+// N3 (bottom) down under it (notBottoms sets their last two runs).
+function routeLatchArcs(edges, nodes) {
   for (const e of edges) {
     const P = nodes[e.from], Q = nodes[e.to];
-    const x = X.term + NR + 18 - BYPASS_LANE * (1 + states.indexOf(Q.sid) % 3) / 2;
-    const y1 = P.y + NR + 21, yb = e.band.bottom - 22;
-    e.points = [[P.x + 3, P.y + Math.sqrt(NR * NR - 9)], [P.x + 3, y1], [x, y1], [x, yb], [Q.x + dx, yb], [Q.x + dx, Q.y + bot + GAP]];
+    if (e.type === "arcTop") {
+      const yy = e.band.top + 18;
+      e.points = P.j === 1 ? [[P.x + NR + 0.5, P.y], [P.x + NR + 14, P.y], [P.x + NR + 14, yy], [Q.x, yy], [Q.x, Q.y - NR - GAP]]
+        : [[P.x, P.y - NR - 0.5], [P.x, yy], [Q.x, yy], [Q.x, Q.y - NR - GAP]];
+    } else {
+      const dx = P.j === 0 ? -8 : 0;
+      e.points = [[P.x + dx, P.y + sideAt(dx) + 0.5]];
+      e.laneX = P.x + dx;
+    }
+  }
+}
+
+// Bottom of each NOT gate of a state: what goes back to it (the AND gates that entered the
+// state, their +1, N1 and N3) arrives from the right, each at its own height and its own point,
+// the farthest lane deepest and leftmost, so that none overlap or cross.
+function notBottoms(edges, nodes) {
+  const byQ = {};
+  for (const e of edges) if (e.laneX !== undefined && nodes[e.to].kind === "not_state") (byQ[e.to] = byQ[e.to] || []).push(e);
+  for (const [q, list] of Object.entries(byQ)) {
+    const Q = nodes[q], band = list[0].band, n = list.length;
+    list.sort((a, b) => b.laneX - a.laneX);
+    list.forEach((e, i) => {
+      const y = band.bottom - 12 - 5 * i, dx = n === 1 ? 0 : -12 + 24 * i / (n - 1);
+      e.points.push([e.laneX, y], [Q.x + dx, y], [Q.x + dx, Q.y + sideAt(dx) + GAP]);
+    });
   }
 }
 
@@ -435,10 +553,13 @@ function busDots(edges) {
 }
 
 // ------------------------------------------------------------------ orthogonal routing
-function routeWires(wires, nodes, all) {
+function routeWires(wires, nodes, all, obstacles = [], limits = { after: {}, before: {} }) {
   const majors = [...new Set(all.map((n) => n.major))].sort((a, b) => a - b);
   const gapAfter = (x) => majors.indexOf(x);           // channel between majors[g] and majors[g + 1]
-  const chan = (g) => [majors[g] + NR + 18, majors[g + 1] - NR - 18];
+  const chan = (g) => {                                 // without the lanes kept for other synapses
+    const lo = limits.after[majors[g]] ?? majors[g] + NR + 18, hi = limits.before[majors[g + 1]] ?? majors[g + 1] - NR - 18;
+    return hi - lo >= 10 ? [lo, hi] : [majors[g] + NR + 18, majors[g + 1] - NR - 18];
+  };
 
   // ports: each wire gets its own height on the side of the neuron; when they do not fit
   // (more than SIDE_PORTS), the outer ones reach a neuron through its upper and lower
@@ -459,6 +580,8 @@ function routeWires(wires, nodes, all) {
         const ang = 40 + (m === 1 ? 0 : Math.min(36, 12 * (m - 1)) * i / (m - 1));
         port = { ang: (j < 0 ? 1 : -1) * ang * Math.PI / 180 };
       }
+      if (end === "out" && node.busIn && port.dy !== undefined)     // its lower right takes the bypasses
+        port.dy = nSide === 1 ? -6 : -13 + 11 * (port.dy + half) / (2 * half);
       e[end === "out" ? "portOut" : "portIn"] = port;
     });
   };
@@ -474,6 +597,10 @@ function routeWires(wires, nodes, all) {
   const sideX = (n, dy, dir) => n.x + dir * (n.src ? NR : Math.sqrt(Math.max(0, NR * NR - dy * dy)));
 
   const verticals = {};                                 // gap -> [{e, slot, y1, y2}]
+  const stats = [];                                     // per channel: its left column, runs and width
+  const streets = obstacles.slice();                    // horizontal runs taken (by other synapses too)
+  const takenBy = (e, y, xa, xb) => streets.some((s) => Math.abs(s.y - y) < 6 && s.x0 < Math.max(xa, xb) && Math.min(xa, xb) < s.x1
+    && !(s.from === e.from && s.rec === e.rec));
   for (const e of wires) {
     const P = nodes[e.from], Q = nodes[e.to], po = e.portOut, pi = e.portIn;
     e.head = null; e.tail = null;
@@ -493,25 +620,43 @@ function routeWires(wires, nodes, all) {
     const gP = gapAfter(P.major), gQ = gapAfter(Q.major) - 1;
     let plan;
     if (gP === gQ) plan = [{ g: gP, y1: ys, y2: yt }];
-    else if (!blocked(e.start[0], chan(gQ)[0], ys, P, Q)) plan = [{ g: gQ, y1: ys, y2: yt }];      // turn late
-    else if (!blocked(chan(gP)[1], e.end[0], yt, P, Q)) plan = [{ g: gP, y1: ys, y2: yt }];      // turn early
+    else if (!blocked(e.start[0], chan(gQ)[0], ys, P, Q) && !takenBy(e, ys, e.start[0], chan(gQ)[0])) {    // turn late
+      plan = [{ g: gQ, y1: ys, y2: yt }];
+      streets.push({ y: ys, x0: e.start[0], x1: chan(gQ)[0], from: e.from, rec: e.rec });
+    } else if (!blocked(chan(gP)[1], e.end[0], yt, P, Q) && !takenBy(e, yt, chan(gP)[1], e.end[0])) {     // turn early
+      plan = [{ g: gP, y1: ys, y2: yt }];
+      streets.push({ y: yt, x0: chan(gP)[1], x1: e.end[0], from: e.from, rec: e.rec });
+    }
     else {                                                                                       // free street
       const xa = chan(gP)[1], xb = chan(gQ)[0];
       const cands = [ys, yt];
       for (const n of all) if (n.x > xa && n.x < xb) cands.push(n.y - CLEAR - 3, n.y + CLEAR + 3);
-      const free = cands.filter((y) => !blocked(xa, xb, y, P, Q));
+      for (const s of streets) if (s.x0 < xb && xa < s.x1) cands.push(s.y - 7, s.y + 7);
+      const free = cands.filter((y) => !blocked(xa, xb, y, P, Q) && !takenBy(e, y, xa, xb));
       const yf = free.sort((a, b) => Math.abs(a - ys) + Math.abs(a - yt) - Math.abs(b - ys) - Math.abs(b - yt))[0] ?? (ys + yt) / 2;
       plan = [{ g: gP, y1: ys, y2: yf }, { g: gQ, y1: yf, y2: yt }];
+      streets.push({ y: yf, x0: xa, x1: xb, from: e.from, rec: e.rec });
     }
     e.plan = plan;
-    for (const v of plan) (verticals[v.g] = verticals[v.g] || []).push(v);
+    for (const v of plan) (verticals[v.g] = verticals[v.g] || []).push(Object.assign(v, { e }));
   }
   // lanes: order the vertical runs of each channel so that they cross as little as possible
   for (const [g, list] of Object.entries(verticals)) {
     const down = list.filter((v) => v.y2 >= v.y1).sort((a, b) => (b.y1 + b.y2) - (a.y1 + a.y2));
     const up = list.filter((v) => v.y2 < v.y1).sort((a, b) => (a.y1 + a.y2) - (b.y1 + b.y2));
     const ordered = down.concat(up), [a, b] = chan(+g), n = ordered.length;
+    const same = (u, v) => u.e.from === v.e.from && u.e.rec === v.e.rec;
+    for (let pass = 0, moved = true; moved && pass < n * n; pass++) {
+      moved = false;
+      for (let i = 0; i < n && !moved; i++) for (let j = 0; j < i && !moved; j++) {
+        const u = ordered[i], v = ordered[j];           // v is to the left of u
+        if (!same(u, v) && Math.abs(u.y1 - v.y2) < 6 && Math.abs(v.y1 - u.y2) >= 6) {
+          ordered.splice(i, 1); ordered.splice(j, 0, u); moved = true;
+        }
+      }
+    }
     ordered.forEach((v, k) => (v.x = n === 1 ? (a + b) / 2 : a + (b - a) * k / (n - 1)));
+    stats.push({ left: majors[+g], n, lo: a, hi: b });
   }
   for (const e of wires) {
     const pts = e.head ? [e.head, e.start] : [e.start];
@@ -520,6 +665,7 @@ function routeWires(wires, nodes, all) {
     if (e.tail) pts.push(e.tail);
     e.points = pts.filter((p, k) => k === 0 || Math.abs(p[0] - pts[k - 1][0]) + Math.abs(p[1] - pts[k - 1][1]) > 0.01);
   }
+  return stats;
 }
 
 // polyline with rounded corners
@@ -540,16 +686,14 @@ function roundedPath(pts, r = 7) {
 function netEdgePath(e, D) {
   const P = D.nodes[e.from], Q = D.nodes[e.to];
   if (e.type === "wire") return roundedPath(e.points);
-  if (e.type === "arcTop" || e.type === "arcBottom") {       // latch ring -> NOT gate of the same state
-    const sg = e.type === "arcTop" ? -1 : 1, yy = sg < 0 ? e.band.top + 18 : e.band.bottom - 18;
-    return roundedPath([[P.x, P.y + sg * (NR + 0.5)], [P.x, yy], [Q.x, yy], [Q.x, Q.y + sg * (NR + GAP)]], 10);
-  }
+  if (e.type === "arcTop" || e.type === "arcBottom") return roundedPath(e.points, 8);   // latch -> NOT gate
   if (e.type === "bypassBus" || e.type === "enterFold" || e.type === "notFold") return roundedPath(e.points, 5);
   return roundedPath(latchRoute(e, P, Q), 5);
 }
 
-// Orthogonal routes of the synapses inside a latch: N2 (j = 1) top left, N3 (j = 2) bottom left,
-// N1 (j = 0) on the right. Each route uses its own side of each neuron, so none overlap.
+// Orthogonal routes of the synapses inside a latch: N1 (j = 0) on the left, N2 (j = 1) top right,
+// N3 (j = 2) bottom right. They use the tops and bottoms of the neurons, so that their left
+// sides stay free for the synapses that arrive from the network, and none overlap.
 function latchRoute(e, P, Q) {
   const side = (n, d) => Math.sqrt(Math.max(0, NR * NR - d * d));      // half chord at offset d
   const o = 6;
@@ -560,10 +704,12 @@ function latchRoute(e, P, Q) {
   const k = `${P.j}${Q.j}`;
   if (k === "12") return [[P.x + o, P.y + side(P, o)], [Q.x + o, Q.y - side(Q, o) - GAP]];        // N2 -> N3 (ring)
   if (k === "21") return [[P.x - o, P.y - side(P, o)], [Q.x - o, Q.y + side(Q, o) + GAP]];        // N3 -> N2 (ring)
-  if (k === "01") return [[P.x + o, P.y - side(P, o)], [P.x + o, Q.y - o], [Q.x + side(Q, o) + GAP, Q.y - o]];   // set N1 -> N2
-  if (k === "10") return [[P.x + side(P, o), P.y + o], [Q.x - o, P.y + o], [Q.x - o, Q.y - side(Q, o) - GAP]];   // N2 -| N1
-  if (k === "20") return [[P.x + NR, P.y], [Q.x, P.y], [Q.x, Q.y + NR + GAP]];                   // N3 -| N1
-  if (k === "02") return [[P.x, P.y + NR], [P.x, Q.y], [Q.x + NR + GAP, Q.y]];
+  const top = Math.min(P.y, Q.y) - NR;
+  if (k === "01") return [[P.x - o, P.y - side(P, o)], [P.x - o, top - 20], [Q.x + o, top - 20], [Q.x + o, Q.y - side(Q, o) - GAP]];  // set N1 -> N2
+  if (k === "10") return [[P.x - o, P.y - side(P, o)], [P.x - o, top - 12], [Q.x + o, top - 12], [Q.x + o, Q.y - side(Q, o) - GAP]];  // N2 -| N1
+  const bot = Math.max(P.y, Q.y) + NR;
+  if (k === "20") return [[P.x - o, P.y + side(P, o)], [P.x - o, bot + 12], [Q.x + o, bot + 12], [Q.x + o, Q.y + side(Q, o) + GAP]];  // N3 -| N1
+  if (k === "02") return [[P.x + o, P.y + side(P, o)], [P.x + o, bot + 20], [Q.x - o, bot + 20], [Q.x - o, Q.y + side(Q, o) + GAP]];
   // any other backward synapse: under both neurons
   const yb = Math.max(P.y, Q.y) + NR + 22;
   return [[P.x, P.y + NR], [P.x, yb], [Q.x, yb], [Q.x, Q.y + NR + GAP]];
@@ -769,13 +915,13 @@ function synRole(e) {
       return "no input spikes (bypass guard)";
     case "latch":
       if (Q.j === 0) {
-        if (ex) return P.kind === "term" ? "Set (OR gate of exclusive inputs)" : "operation signal of the Inh.-based OR (OP + 3)";
+        if (ex) return P.kind === "init" ? "Set: active at start" : P.kind === "term" ? "Set (OR gate of exclusive inputs)" : "operation signal of the Inh.-based OR (OP + 3)";
         if (P.key === Q.key) return "self-inhibition";
         if (P.kind === "latch") return "the state is already active";
         if (P.kind === "nor") return "Inh.-based OR: no entering transition";
         return opLine ? "input spikes: cancels a Set still pending" : "cancels a Set still pending";
       }
-      if (ex) return P.kind === "init" ? "active at start" : P.j === 0 ? "Set → ring" : "ring";
+      if (ex) return P.j === 0 ? "Set → ring" : "ring";
       return opLine ? "Reset: every input event leaves the state" : "Reset";
   }
   return ex ? "excitatory" : "inhibitory";
@@ -786,7 +932,11 @@ function drawNetwork() {
   const visible = (n) => !netHidden.has(n.kind);
   const parts = [];
   const ed = (key, def) => `data-lbl="${esc(key)}" data-def="${esc(def)}"`;
-  for (const h of D.headers) parts.push(`<text class="col-head" x="${h.x}" y="${h.y}" ${ed("head:" + h.c, h.text)}>${esc(netLbl("head:" + h.c, h.text))}</text>`);
+  for (const [i, b] of (D.stepBands || []).entries()) {
+    if (b.k % 2) parts.push(`<rect class="step-band" x="${b.x0}" y="${D.box.y0}" width="${b.x1 - b.x0}" height="${D.box.y1 - D.box.y0}"/>`);
+    if (i) parts.push(`<line class="step-sep" x1="${b.x0}" y1="${D.box.y0 + 4}" x2="${b.x0}" y2="${D.box.y1 - 4}"/>`);
+  }
+  for (const h of D.headers) parts.push(`<text class="${h.sub ? "col-sub" : "col-head"}" x="${h.x}" y="${h.y}" ${ed("head:" + h.c, h.text)}>${esc(netLbl("head:" + h.c, h.text))}</text>`);
   if (!netHidden.has("term")) for (const b of D.tboxes || []) {        // the AND gates of a term (parallel)
     const t = transById(b.n.tid), cond = b.n.cond || (t ? t.options[b.n.k] : null);
     const name = termTitle(b.n), key = `tbox:${b.n.tid}:${b.n.k}`;
@@ -911,11 +1061,11 @@ function renderNetCounts() {
   const head = sel ? `<span></span><span class="ch">Selected</span><span class="ch">Total</span>` : "";
   const row = (name, sub, s, t) => `<div class="cl">${name}<span>${sub}</span></div>${sel ? `<b class="cs">${s}</b>` : ""}<b class="ct">${t}</b>`;
   const nSub = sel ? `selected: ${plural(sel.neurons, "neuron")}${sel.sources ? ` + ${plural(sel.sources, "spike source")}` : ""} · total: ${c.neurons} + ${plural(c.sources, "spike source")}`
-    : `${c.neurons} neurons + ${plural(c.sources, "spike source")} (inputs and initialisation)`;
+    : `without the ${plural(c.sources, "spike source")} (inputs and initialisation)`;
   const sSub = sel ? `selected: ${sel.exc} exc. · ${sel.inh} inh. · total: ${c.excitatory} exc. · ${c.inhibitory} inh.`
     : `${c.excitatory} excitatory · ${c.inhibitory} inhibitory`;
   $("#netCounts").innerHTML = `<div class="counts3${sel ? " with-sel" : ""}">${head}
-    ${row("Neurons", nSub, sel && sel.neurons + sel.sources, c.neurons + c.sources)}
+    ${row("Neurons", nSub, sel && sel.neurons, c.neurons)}
     ${row("Synapses", sSub, sel && sel.synapses, c.synapses)}</div>
     <p class="note set-mode">${netData.setMode === "inhibition"
       ? "Inh.-based OR gates: some state can be entered by two AND gates at once, or left and entered at once."

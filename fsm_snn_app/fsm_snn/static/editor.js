@@ -25,7 +25,7 @@ function undo() {
 function newId(prefix, list) { let k = 0; while (list.some((x) => x.id === prefix + k)) k++; return prefix + k; }
 function newStateName() { let k = 0; while (spec.states.some((s) => s.name === "S" + k)) k++; return "S" + k; }
 function changed(undoable = true) {
-  render(); renderInspector(); scheduleCheck(); store("fsm_snn_spec", spec);
+  render(); renderInspector(); scheduleCheck(); store("fsm_snn_spec", spec); renderDesignName();
   if (undoable) $("#btnUndo").disabled = false;
   if (!dirty) markDirty(true);
   if ($("#tab-network").classList.contains("active")) loadNetwork();
@@ -582,7 +582,16 @@ let dirty = false;              // changes since the last open or save
 const baseName = (p) => (p ? p.split(/[\\/]/).pop() : "");
 const dirName = (p) => p.replace(/[\\/][^\\/]*$/, "");
 function markDirty(on) { dirty = on; store("fsm_snn_dirty", on); renderFileName(); }
+// The design being worked on, at the top of every tab: its name and its file.
+function renderDesignName() {
+  const el = $("#designName");
+  if (!el || !spec) return;
+  const file = filePath ? baseName(filePath) + (dirty ? " • unsaved changes" : "") : "not saved to a file";
+  el.innerHTML = `<b>${esc(spec.name || "Untitled machine")}</b><span>${esc(file)}</span>`;
+  el.title = filePath ? filePath : "The design you are working on";
+}
 function renderFileName() {
+  renderDesignName();
   const el = $("#fileName");
   el.textContent = filePath ? baseName(filePath) + (dirty ? " •" : "") : "";
   el.title = filePath ? filePath + (dirty ? " (unsaved changes)" : "") : "";
