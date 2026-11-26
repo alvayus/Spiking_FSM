@@ -130,7 +130,7 @@ The network is built with the spiking components of the manuscript (Sec. 2.3, Fi
 | Latch (Fig. 1d) | 3 per state | Set → N1 → ring N2 ↔ N3; N1 inhibits itself and the ring inhibits N1, so a state that is already active is not set again (N2 never receives N1 and N3 together); Reset (the AND gates that leave the state) inhibits N2 and N3. A state active at start receives the initialisation spike in N2 |
 | Output, pattern found (internal, optional) | 1 (+ 1 NOR) | OR gate of the transitions entering states flagged as `accepting` in the JSON specification. The editor does not create it; the built-in sequence detectors used by the tests use it |
 
-The OR gates of a machine are direct (**direct** set) when no state can be entered by two AND gates for the same input spikes, nor left and entered at once, which holds for every deterministic machine; otherwise they are inhibition-based. The builder finds out by exploring the sets of states that can be active together, and the Network tab says which one it used. The terms of each condition are split so that they never hold together.
+The OR gates of a machine are direct (**direct** set) when no state can be entered by two AND gates for the same input spikes, nor left and entered at once, which holds for every deterministic machine; otherwise they are inhibition-based. The builder finds out by exploring, exactly and with no size limit, every set of states that can be active together and every combination of input spikes (only the inputs that some condition reads are decided, one at a time), and the Network tab says which one it used. The terms of each condition are split so that they never hold together.
 
 Timing, in time steps after an input event at time step *t*:
 

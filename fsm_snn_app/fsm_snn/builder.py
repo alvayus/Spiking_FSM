@@ -239,9 +239,6 @@ def _unit_delays(net):
 
 
 # ------------------------------------------------------------------------- analysis of the machine
-MAX_EXPLORE = 4096          # sets of active states explored
-
-
 def _transitions(s, disjoint=False):
     st = {x["id"] for x in s["states"]}
     trans = [t for t in s["transitions"] if t["from"] in st and t["to"] in st]
@@ -250,45 +247,106 @@ def _transitions(s, disjoint=False):
     return trans
 
 
-def _modes(s, trans) -> dict:
-    """Explore the sets of states that can be active together and every input event:
-    the largest number of terms that enter each state, leave it or enter an accepting state
-    for the same input spikes, and whether a state can be left and entered at once.
-    Too large a machine is treated as the worst case."""
-    from itertools import product
-    from .spec import transition_holds
-    inputs = s["inputs"]
-    ids = [x["id"] for x in s["states"]]
-    acc = {x["id"] for x in s["states"] if x["accepting"]}
-    worst = dict(ent={sid: 2 for sid in ids}, lev={sid: 2 for sid in ids}, acc=2, both={sid: True for sid in ids})
-    out = dict(ent={sid: 0 for sid in ids}, lev={sid: 0 for sid in ids}, acc=0, both={sid: False for sid in ids})
-    if len(inputs) <= 10:
-        events = [{i for i, on in zip(inputs, bits) if on} for bits in product((0, 1), repeat=len(inputs))]
-        events = [e for e in events if e]
-        holds = lambda opt, ev: transition_holds(dict(options=[opt]), ev)
-        start = frozenset(x["id"] for x in s["states"] if x["initial"])
-        seen, todo = {start}, [start]
-        while todo:
-            if len(seen) > MAX_EXPLORE:
-                out = worst
+def _lits(o):
+    return {i: v for i, v in o.items() if v in (ON, OFF)}
+
+
+def _together(lits, n_inputs):
+    """Whether these terms (dicts of literals) can hold for the same input spikes: no input
+    both on and off, and not all the inputs forced off (some input always spikes)."""
+    seen = {}
+    for d in lits:
+        for i, v in d.items():
+            if seen.setdefault(i, v) != v:
+                return False
+    return not (len(seen) >= n_inputs and all(v == OFF for v in seen.values()))
+
+
+def _moves(terms, bit, n_inputs):
+    """Every (left, entered) pair of state masks that the input spikes can produce from
+    these terms (from, to, literals). Exact: the inputs are decided one at a time (the one
+    most read first), each term keeps only its undecided literals, a term that can no longer
+    change the masks is dropped, and the same remaining problem is solved only once."""
+    out, memo = set(), set()
+
+    def go(und, left, entered, assigned, anyon):
+        while True:                     # fire the decided terms, drop those that change nothing
+            fired = [(f, g) for f, g, l in und if not l]
+            for f, g in fired:
+                left |= 0 if f == g else bit[f]
+                entered |= bit[g]
+            und = [(f, g, l) for f, g, l in und if l and not ((bit[f] & left or f == g) and bit[g] & entered)]
+            if not fired or not und:
                 break
-            act = todo.pop()
-            for ev in events:
-                fired = [t for t in trans if t["from"] in act for o in t["options"] if holds(o, ev)]
-                for sid in ids:
-                    ne = sum(1 for t in fired if t["to"] == sid)
-                    nl = sum(1 for t in fired if t["from"] == sid and t["to"] != sid)
-                    out["ent"][sid] = max(out["ent"][sid], ne)
-                    out["lev"][sid] = max(out["lev"][sid], nl)
-                    out["both"][sid] |= bool(ne and nl)
-                out["acc"] = max(out["acc"], sum(1 for t in fired if t["to"] in acc))
-                left = {t["from"] for t in fired if t["to"] != t["from"]}
-                nxt = frozenset((act - left) | {t["to"] for t in fired})
-                if nxt not in seen:
-                    seen.add(nxt)
-                    todo.append(nxt)
-    else:
-        out = worst
+        if not und:
+            if anyon or assigned < n_inputs:                      # a real event
+                out.add((left, entered))
+            return
+        reads = {}
+        for _, _, l in und:
+            for i, _ in l:
+                reads[i] = reads.get(i, 0) + 1
+        key = (frozenset((f, g, l) for f, g, l in und), left, entered, anyon, min(n_inputs - assigned, len(reads) + 1))
+        if key in memo:
+            return
+        memo.add(key)
+        var = max(reads, key=reads.get)
+        for on in (True, False):
+            want = ON if on else OFF
+            nxt = []
+            for f, g, l in und:
+                d = dict(l)
+                if var in d:
+                    if d.pop(var) != want:
+                        continue                                  # contradicted: never fires
+                    nxt.append((f, g, frozenset(d.items())))
+                else:
+                    nxt.append((f, g, l))
+            go(nxt, left, entered, assigned + 1, anyon or on)
+
+    go([(f, g, frozenset(_lits(o).items())) for f, g, o in terms], 0, 0, 0, False)
+    return out
+
+
+def _modes(s, trans) -> dict:
+    """Explore, exactly, the sets of states that can be active together and every input
+    event: for each state, whether no term, one or several (2) can enter it or leave it for
+    the same input spikes, whether it can be left and entered at once, and the same count for
+    the terms that enter accepting states."""
+    ids = [x["id"] for x in s["states"]]
+    n = len(s["inputs"])
+    bit = {sid: 1 << k for k, sid in enumerate(ids)}
+    acc = {x["id"] for x in s["states"] if x["accepting"]}
+    terms = [(t["from"], t["to"], _lits(o)) for t in trans for o in t["options"]]
+    out = dict(ent={sid: 0 for sid in ids}, lev={sid: 0 for sid in ids}, acc=0, both={sid: False for sid in ids})
+
+    def most(ts):                       # 0, 1 or 2 (several) of these terms at once
+        ts = [l for l in ts if _together([l], n)]
+        if not ts:
+            return 0
+        return 2 if any(_together([a, b], n) for k, a in enumerate(ts) for b in ts[k + 1:]) else 1
+
+    moves = {}                          # active source states (mask) -> {(left, entered)}
+    start = sum(bit[x["id"]] for x in s["states"] if x["initial"])
+    seen, todo = {start}, [start]
+    while todo:
+        act = todo.pop()
+        src = sum({bit[f] for f, _, _ in terms if act & bit[f]})
+        if src not in moves:            # the counts depend only on the active source states
+            ts = [t for t in terms if src & bit[t[0]]]
+            for sid in ids:
+                into = [l for f, g, l in ts if g == sid]
+                away = [l for f, g, l in ts if f == sid and g != sid]
+                out["ent"][sid] = max(out["ent"][sid], most(into))
+                out["lev"][sid] = max(out["lev"][sid], most(away))
+                out["both"][sid] |= any(_together([a, b], n) for a in into for b in away)
+            out["acc"] = max(out["acc"], most([l for f, g, l in ts if g in acc]))
+            moves[src] = _moves([(f, g, l) for f, g, l in ts], bit, n)
+        for left, entered in moves[src]:
+            nxt = (act & ~left) | entered
+            if nxt not in seen:
+                seen.add(nxt)
+                todo.append(nxt)
     sources = {t["from"] for t in trans}
     out["direct"] = all(out["ent"][sid] <= 1 and not out["both"][sid] for sid in ids)
     out["shared"] = {sid for sid in ids if out["ent"][sid] > 1 and sid in sources}
