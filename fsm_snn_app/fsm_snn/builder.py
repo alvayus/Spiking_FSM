@@ -58,15 +58,15 @@ Timing, in steps after input spikes at step e:
   the NOT gate of its source state, which knows the state after the input spikes up to
   e - 3: input spikes at least 3 steps apart.
 * ``parallel``: the bypasses of the complex case, so that input spikes may come closer.
-  Each term has up to three AND gates, one per case, and at most one of them fires:
+  The NOT gate of the source state knows the latch and the AND gates that entered the state
+  2 steps before; a delay neuron of the Reset says the state was left 2 steps before (and
+  not entered at the same time). Each term has up to two AND gates, one per case, and at
+  most one of them fires:
 
-  * latch: no change of the source state at e' - 1 and e' - 2, and its NOT gate says it
-    is active;
-  * bypass t-2: the source state was entered at e' - 2 and nothing changed at e' - 1;
-  * bypass t-1: it was entered at e' - 1, excited directly by the AND gate that entered it
-    (there is no time for an OR gate here, so in inhibition-based mode this case only
-    exists out of states that a single AND gate can enter at a time; otherwise input
-    spikes must be at least 2 steps apart).
+  * latch: the NOT gate says the state is active and it was not left at e' - 2 or e' - 1;
+  * bypass t-1: the state was entered at e' - 1, excited directly by the AND gate that
+    entered it (there is no time for an OR gate here, so when two AND gates can enter a
+    state at once input spikes must be at least 2 steps apart, and there is no bypass).
 
 Every synapse has a delay of one time step (some platforms do not implement longer delays).
 Where a signal has to arrive later, it goes through a delay line: delay neurons that each
@@ -319,6 +319,7 @@ def _modes(s, trans) -> dict:
     acc = {x["id"] for x in s["states"] if x["accepting"]}
     terms = [(t["from"], t["to"], _lits(o)) for t in trans for o in t["options"]]
     out = dict(ent={sid: 0 for sid in ids}, lev={sid: 0 for sid in ids}, acc=0, both={sid: False for sid in ids})
+    reent = 0                           # states that can be entered while already active
 
     def most(ts):                       # 0, 1 or 2 (several) of these terms at once
         ts = [l for l in ts if _together([l], n)]
@@ -327,6 +328,7 @@ def _modes(s, trans) -> dict:
         return 2 if any(_together([a, b], n) for k, a in enumerate(ts) for b in ts[k + 1:]) else 1
 
     moves = {}                          # active source states (mask) -> {(left, entered)}
+    can_enter = {}                      # active source states (mask) -> states some term can enter
     start = sum(bit[x["id"]] for x in s["states"] if x["initial"])
     seen, todo = {start}, [start]
     while todo:
@@ -342,6 +344,8 @@ def _modes(s, trans) -> dict:
                 out["both"][sid] |= any(_together([a, b], n) for a in into for b in away)
             out["acc"] = max(out["acc"], most([l for f, g, l in ts if g in acc]))
             moves[src] = _moves([(f, g, l) for f, g, l in ts], bit, n)
+            can_enter[src] = sum({bit[g] for f, g, l in ts if _together([l], n)})
+        reent |= act & can_enter[src]
         for left, entered in moves[src]:
             nxt = (act & ~left) | entered
             if nxt not in seen:
@@ -350,6 +354,7 @@ def _modes(s, trans) -> dict:
     sources = {t["from"] for t in trans}
     out["direct"] = all(out["ent"][sid] <= 1 and not out["both"][sid] for sid in ids)
     out["shared"] = {sid for sid in ids if out["ent"][sid] > 1 and sid in sources}
+    out["reent"] = {sid: bool(reent & bit[sid]) for sid in ids}
     return out
 
 
@@ -378,7 +383,7 @@ def _disjoint(options, order):
 
 
 # ------------------------------------------------------------------------- the network
-VIA = ("latch", "bypass 1", "bypass 2")
+VIA = ("latch", "bypass 1")
 
 
 class _Builder:
@@ -553,93 +558,105 @@ class _Builder:
         return self._relay[key]
 
     def reset_relay(self, sid):
-        """The AND gates that leave a state, one step later (one neuron when they never fire
-        together, else one per term)."""
-        if self.m["lev"][sid] <= 1:
-            key = ("reset", sid)
+        """Parallel: the AND gates that leave a state, one step later, when the state was not
+        entered at the same time (entering wins): one neuron when they never fire together,
+        else one per term. It is inhibited by the AND gates that can enter the state for the
+        same input spikes."""
+        if not self.lev(sid):
+            return []
+        cond = lambda t, k: _lits(t["options"][k])
+        into = [(u, j) for u in self.trans if u["to"] == sid for j in range(len(u["options"]))]
+        away = [(t, k) for t in self.trans if t["from"] == sid and t["to"] != sid for k in range(len(t["options"]))]
+        if self.m["lev"][sid] > 1 and not self.m["both"][sid]:   # the +1 of each term will do
+            return [self.relay(t, k) for t, k in away]
+        groups = [away] if self.m["lev"][sid] <= 1 else [[x] for x in away]
+        out = []
+        for g in groups:
+            key = ("reset", sid, len(out))
             if key not in self._relay:
-                n = self.net.add_neuron(f"Reset {self.names[sid]} +1", "reset_relay", sid=sid)
-                for x in self.lev(sid):
-                    self.con(self.N(x), n, "exc", 1)
+                one = len(groups) > 1
+                label = f"Reset {self.names[sid]} +1" + (f" ({self.term_label(*g[0])})" if one else "")
+                n = self.net.add_neuron(label, "reset_relay", sid=sid, **(dict(tid=g[0][0]["id"], k=g[0][1]) if one else {}))
+                for t, k in g:
+                    for x in self.gates(t, k):
+                        self.con(self.N(x), n, "exc", 1)
+                if self.m["both"][sid]:
+                    n_in = len(self.s["inputs"])
+                    for u, j in into:
+                        if any(_together([cond(u, j), cond(t, k)], n_in) for t, k in g):
+                            for x in self.gates(u, j):
+                                self.con(self.N(x), n, "inh", 1)
                 self._relay[key] = n
-            return [self._relay[key]]
-        return [self.relay(t, k) for t in self.trans if t["from"] == sid and t["to"] != sid
-                for k in range(len(t["options"]))]
+            out.append(self._relay[key])
+        return out
 
     def parallel_gates(self):
         net, op = self.net, self.net.op
         entered = {t["to"] for t in self.trans}
-        b1_ok = lambda sid: self.direct or sid not in self.m["shared"]
+        # spikes 1 step apart, unless several AND gates can enter a state at once (then 2 steps
+        # apart, and there is no bypass t-1)
+        self.b1 = self.direct or not self.m["shared"]
         for t in self.trans:
-            sid = t["from"]
-            # the NOT gate of the state also reads the AND gates of 2 steps before, so there is no
-            # bypass t-2, unless the state can be left and entered at once (entering wins there)
-            vias = ["latch"] + ((["bypass 1"] if b1_ok(sid) else []) + (["bypass 2"] if self.m["both"][sid] else [])
-                                if sid in entered else [])
+            vias = ["latch"] + (["bypass 1"] if self.b1 and t["from"] in entered else [])
             for k, opt in enumerate(t["options"]):
                 self.terms[(t["id"], k)] = {v: net.add_neuron(self.term_label(t, k), "term", via=v, tid=t["id"], cond=opt)
                                             for v in vias}
                 for n in self.terms[(t["id"], k)].values():
                     net.terms.append((t["id"], k, n))
-        # ¬OP(t) ∧ OP(t−1): input spikes 1 step before and none now (e' + T_GATE)
-        no_now = net.add_neuron("NOT OP(t) AND OP(t-1)", "no_event", g=1)
-        self.con(self.N(op), no_now, "exc", T_GATE - T_OP + 1)
-        self.con(self.N(op), no_now, "inh", T_GATE - T_OP)
-        prev2 = None
-        if any(self.m["both"][sid] for sid in entered):   # OP(t) ∧ ¬OP(t−2), for bypass t−2
-            prev2 = net.add_neuron("OP(t) AND NOT OP(t-2)", "no_prev", g=2)
-            self.con(self.N(op), prev2, "exc", T_GATE - T_OP)
-            self.con(self.N(op), prev2, "inh", T_GATE - T_OP + 2)
-        self._parallel = (no_now, prev2)
+        self._no_now = None
+        if self.b1 and any(t["from"] in entered for t in self.trans):
+            # ¬OP(t) ∧ OP(t−1): input spikes 1 step before and none now (e' + T_GATE)
+            self._no_now = net.add_neuron("NOT OP(t) AND OP(t-1)", "no_event", g=1)
+            self.con(self.N(op), self._no_now, "exc", T_GATE - T_OP + 1)
+            self.con(self.N(op), self._no_now, "inh", T_GATE - T_OP)
 
     def finish_parallel(self):
-        """Parallel: the cases of each term. A state that cannot be left and entered at once
-        ("simple") is read by its NOT gate up to the AND gates of 2 steps before; one that can
-        keeps the bypass t-2 and treats any change of the state alike."""
-        no_now, prev2 = self._parallel
+        """Parallel: the cases of each term, at most one of which fires.
+
+        * The NOT gate of the state reads the latch and the AND gates that entered the state
+          2 steps before (and, with an Inh.-based OR, the +1 of those of 3 steps before).
+        * latch: the NOT gate says the state is active and it was not left 2 or 1 steps before
+          (the Resets +1, the AND gates that leave it).
+        * bypass t-1: the state was entered 1 step before (excited by the AND gates that
+          entered it). If the state can also be entered while it is active, one of the two
+          cases must yield: the bypass, inhibited by the latch, or the latch case, inhibited by
+          the AND gates that enter the state (the only choice where a state can be left and
+          entered at once); the cheaper one is used."""
         net = self.net
-        simple = lambda sid: not self.m["both"][sid]
         ent_relays = lambda sid: [self.relay(u, k) for u in self.trans if u["to"] == sid for k in range(len(u["options"]))]
-        lev_relays = lambda sid: self.reset_relay(sid) if self.lev(sid) else []
-        for sid, n in self.not_st.items():
-            if simple(sid):                  # entered 2 steps before
-                for x in self.ent(sid):
-                    self.con(self.N(x), n, "inh", 1)
-        for t in self.trans:
-            sid = t["from"]
-            if simple(sid):
-                # a state entered at e'-1 while active fires the latch case, not bypass t-1
-                change1 = self.lev(sid)                                 # left at e' - 1
-                change2 = lev_relays(sid)                               # left at e' - 2
-            else:
-                change1 = self.ent(sid) + self.lev(sid)                 # any change at e' - 1
-                change2 = ent_relays(sid) + [self.relay(u, k) for u in self.trans if u["from"] == sid and u["to"] != sid
-                                             for k in range(len(u["options"]))]
-            for k, opt in enumerate(t["options"]):
-                T = self.terms[(t["id"], k)]
-                n = T["latch"]                                         # no change at e'-1, e'-2; S̄ says active
-                d = self.excite(n, opt)
-                self.con(self.N(self.not_st[sid]), n, "inh", T_TERM - T_GATE)
-                for x in change1 + change2:
-                    self.con(self.N(x), n, "inh", 1)
-                self.veto(n, opt, skip=d)
-                if "bypass 2" in T:                                    # entered at e'-2, no change at e'-1
-                    n = T["bypass 2"]                                  # OP + 1 and not "not entered" (NOR)
+        for sid, n in self.not_st.items():                       # entered 2 steps before
+            for x in self.ent(sid):
+                self.con(self.N(x), n, "inh", 1)
+        for sid in self.not_st:
+            outs = [t for t in self.trans if t["from"] == sid]
+            b1 = any("bypass 1" in self.terms[(t["id"], 0)] for t in outs)
+            latch_guard = []                                     # inhibits bypass t-1: the state was active
+            entry_guard = []                                     # inhibits the latch case: entered 1 step before
+            if b1 and (self.m["reent"][sid] or self.m["both"][sid]):
+                newly = list(net.latches[sid]) + ([] if self.direct else ent_relays(sid))
+                if self.m["both"][sid] or len(self.ent(sid)) < len(newly):
+                    entry_guard = self.ent(sid)
+                else:
+                    latch_guard = newly
+            # left 1 step before (only when input spikes can come 1 step apart) or 2 steps before
+            change = (self.lev(sid) + entry_guard if self.b1 else []) + self.reset_relay(sid)
+            for t in outs:
+                for k, opt in enumerate(t["options"]):
+                    T = self.terms[(t["id"], k)]
+                    n = T["latch"]
                     d = self.excite(n, opt)
-                    self.con(self.N(self.nors[sid]), n, "inh", 1)
-                    self.con(self.N(prev2), n, "inh", T_TERM - T_GATE)
-                    for x in change1:
+                    self.con(self.N(self.not_st[sid]), n, "inh", T_TERM - T_GATE)
+                    for x in change:
                         self.con(self.N(x), n, "inh", 1)
                     self.veto(n, opt, skip=d)
-                if "bypass 1" in T:                                    # entered at e'-1
-                    n = T["bypass 1"]
-                    for x in self.ent(sid):
-                        self.con(self.N(x), n, "exc", 1)
-                    self.con(self.N(no_now), n, "inh", T_TERM - T_GATE)
-                    if simple(sid):                                    # newly entered: not active after e'-2
-                        for x in net.latches[sid] + (tuple(ent_relays(sid)) if not self.direct else ()):
+                    if "bypass 1" in T:
+                        n = T["bypass 1"]
+                        for x in self.ent(sid):
+                            self.con(self.N(x), n, "exc", 1)
+                        self.con(self.N(self._no_now), n, "inh", T_TERM - T_GATE)
+                        for x in latch_guard:
                             self.con(self.N(x), n, "inh", 1)
-                    self.veto(n, opt)
+                        self.veto(n, opt)
         if not self.direct:      # a set still pending from the previous input spikes (entered, then left)
             for sid in self.names:
                 for x in self.lev(sid):
