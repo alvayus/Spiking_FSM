@@ -47,11 +47,12 @@ Timing, in steps after input spikes at step e:
   e + 2                 OP
   e + 3                 delay neuron (OP + 1), NOT gates of the inputs and states
   e + 4                 AND gates (transitions)
-  e + 5                 reset of the source (N2, N3); direct: set (N1), Output;
-                        inhibition-based: NOR gates
-  e + 6                 direct: destination active (ring);
-                        inhibition-based: set (N1), Output
-  e + 7                 inhibition-based: destination active (ring)
+  e + 5                 reset of the source (N2, N3); direct: set (N1, the
+                        destination is active), Output; inhibition-based: NOR gates
+  e + 6                 direct: ring; inhibition-based: set (N1, active), Output
+  e + 7                 inhibition-based: ring
+
+A state is active while any of its latch neurons (N1, N2, N3) spikes.
   ====================  =====================================================
 
 * ``pipelined``: the paradigm of the simple case of the manuscript: every AND gate reads
@@ -105,7 +106,7 @@ DEFAULT_ARCHITECTURE = "parallel"
 
 def timing(direct: bool, direct_output: bool) -> dict:
     t_set = T_TERM + (1 if direct else 2)
-    return dict(state_latency=t_set + 1, output_latency=T_TERM + (1 if direct_output else 2),
+    return dict(state_latency=t_set, output_latency=T_TERM + (1 if direct_output else 2),
                 stop_latency=T_RESET - 1, ready_step=INIT_STEP + 1, set_step=t_set)
 
 
@@ -129,7 +130,7 @@ class Netlist:
     sources: list = field(default_factory=list)   # dicts: label, kind, input
     conns: list = field(default_factory=list)     # (pre_ref, post, receptor, delay); every weight is 1
     latches: dict = field(default_factory=dict)   # state id -> (n1, n2, n3)
-    states: dict = field(default_factory=dict)    # state id -> neurons whose spikes are the state
+    states: dict = field(default_factory=dict)    # state id -> neurons whose spikes are the state (N1, N2, N3)
     terms: list = field(default_factory=list)     # (transition id, option idx, neuron)
     output: int | None = None
     op: int | None = None
@@ -175,13 +176,14 @@ class Netlist:
 
 def build(spec: dict) -> Netlist:
     """Build the spiking network that implements ``spec``: the cheapest (fewest neurons, then
-    fewest synapses) of the variants with and without OP telling that a state was left."""
+    fewest synapses) of the variants with and without OP telling that a state was left, and
+    with and without input neurons of the Alt. OR as the input one step later."""
     s = normalise(spec)
-    nets = [_build(s, use_op) for use_op in (False, True)]
+    nets = [_build(s, use_op, use_rel) for use_op in (False, True) for use_rel in (False, True)]
     return min(nets, key=lambda n: (len(n.neurons), len(n.conns)))
 
 
-def _build(s, use_op):
+def _build(s, use_op, use_rel):
     arch = architecture(s)
     net = Netlist(architecture=arch)
     for name in s["inputs"]:
@@ -195,7 +197,7 @@ def _build(s, use_op):
         for prev in s["inputs"][:k]:
             net.connect(("src", net.input_sources[prev]), r, "inh", T_REL)
         net.connect(("n", r), net.op, "exc", T_OP - T_REL)
-    _Builder(s, net, arch == "parallel", use_op).run()
+    _Builder(s, net, arch == "parallel", use_op, use_rel).run()
     _unit_delays(net)
     return net
 
@@ -420,7 +422,7 @@ def _disjoint(options, order):
 
 
 class _Builder:
-    def __init__(self, s, net, parallel, use_op=True):
+    def __init__(self, s, net, parallel, use_op=True, use_rel=False):
         self.s, self.net, self.parallel = s, net, parallel
         # terms split so that at most one term of a transition fires at a time
         self.trans = _transitions(s, disjoint=True)
@@ -445,6 +447,7 @@ class _Builder:
         net.timing = timing(self.direct, self.direct_out)
         self.t_set = net.timing["set_step"]
         self._delay = None
+        self.use_rel = use_rel
         self._not_inp = {}
         self.names = {x["id"]: x["name"] for x in s["states"]}
 
@@ -475,21 +478,36 @@ class _Builder:
         """The positive input that excites an AND gate (delayed to arrive with OP + 1), or None."""
         return next((i for i, v in opt.items() if v == ON), None)
 
+    def relay_driver(self, opt):
+        """A positive input of the term whose earlier inputs (in the order of the Alt. OR) are
+        all negated in it: its input neuron of the Alt. OR, which fires when it spikes and none
+        of the earlier inputs do, is then the input one step later for this term."""
+        ins = self.s["inputs"]
+        return next((i for i, v in opt.items()
+                     if v == ON and all(opt.get(j) == OFF for j in ins[:ins.index(i)])), None)
+
     def excite(self, n, opt, use_driver=True):
         """Excitation of an AND gate (e + T_TERM): its first positive input, or OP + 1.
-        Returns the literal used, which then needs no NOT gate."""
+        Returns the literals it covers, which then need no NOT gate or inhibition: the input,
+        or, with the input neuron of the Alt. OR, also the negated inputs before it."""
+        r = self.relay_driver(opt) if use_driver and self.use_rel else None
+        if r is not None:
+            k = self.s["inputs"].index(r)
+            relay = next(x for x, m in enumerate(self.net.neurons) if m["kind"] == "relay" and m.get("input") == r)
+            self.con(self.N(relay), n, "exc", T_TERM - T_REL)
+            return {r, *self.s["inputs"][:k]}
         d = self.driver(opt) if use_driver else None
         if d is not None:
             self.con(("src", self.net.input_sources[d]), n, "exc", T_TERM)
         else:
             self.con(self.N(self.delay()), n, "exc", T_TERM - T_GATE)
-        return d
+        return {d}
 
-    def veto(self, n, opt, skip=None):
+    def veto(self, n, opt, skip=()):
         """Inhibition of an AND gate by its inputs: NOT gate of a positive input, the input
         itself for a negated one."""
         for i, v in opt.items():
-            if i == skip:
+            if i in skip:
                 continue
             if v == ON:
                 self.con(self.N(self.not_input(i)), n, "inh", T_TERM - T_GATE)
@@ -515,7 +533,7 @@ class _Builder:
             a = net.add_neuron(f"{st['name']}.N2", "latch")
             b = net.add_neuron(f"{st['name']}.N3", "latch")
             net.latches[st["id"]] = (n1, a, b)
-            net.states[st["id"]] = (a, b)
+            net.states[st["id"]] = (n1, a, b)                  # any of the three: the state is active
             self.con(self.N(n1), a, "exc", 1)
             self.con(self.N(a), b, "exc", 1)
             self.con(self.N(b), a, "exc", 1)

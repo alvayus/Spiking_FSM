@@ -124,8 +124,8 @@ The network is built with the spiking components of the manuscript (Sec. 2.3, Fi
 | OP, alternative OR gate of the inputs (ALU Fig. 6, complex case of the manuscript) | 1 + 1 per input | One input neuron per input, excited by it and inhibited by the inputs before it, so at most one excites OP. The first one is also the input one step later |
 | Delay neurons (yellow) | shared | OP + 1, the delay neuron of the AND gates (only for AND gates without a positive input); chains that repeat an input or OP one step later each |
 | NOT gate of an input, Ā (Fig. 1a) | 1 per input that needs it | Excited by OP, inhibited by the input |
-| NOT gate of a state, S̄ (complex case) | 1 per source state | Excited by OP, inhibited by the latch (N1, N2, N3) and by the AND gates that entered the state just before |
-| AND gate of a transition (Fig. 1c) | 1 per term (parallel: up to 3) | A NOR neuron excited by the first positive input of the term (delayed to arrive with OP + 1, as A·S0 in the complex case) or, without one, by OP + 1; inhibited by the NOT gates of its other positive inputs, by its negated inputs and by S̄ |
+| NOT gate of a state, S̄ (complex case) | 1 per source state (none for a state that is never left) | Excited by OP, inhibited by the latch (N1, N2, N3) and, in parallel, by the AND gates that entered the state 2 steps before |
+| AND gate of a transition (Fig. 1c) | 1 per term (parallel: latch + bypasses) | A NOR neuron excited by the first positive input of the term (delayed to arrive with OP + 1, as A·S0 in the complex case) or, without one, by OP + 1. When the term negates every input before that one, the input neuron of the Alt. OR (which already excludes them) is that input one step later, if the network is cheaper so; inhibited by the NOT gates of its other positive inputs, by its negated inputs and by S̄ |
 | OR gate (Fig. 1b) | 0 or 1 NOR per state | The Set of each state is the OR of the AND gates that enter it. When they can never fire together, N1 itself is the OR (excited by all of them). Otherwise it is inhibition-based: a NOR gate (excited by OP + 2, inhibited by them) inhibits N1, which OP + 3 excites |
 | Latch (Fig. 1d) | 3 per state | Set → N1 → ring N2 ↔ N3; N1 inhibits itself and the ring inhibits N1, so a state that is already active is not set again (N2 never receives N1 and N3 together); Reset (the AND gates that leave the state) inhibits N2 and N3. A state active at start receives the initialisation spike in N2 |
 | Output, pattern found (internal, optional) | 1 (+ 1 NOR) | OR gate of the transitions entering states flagged as `accepting` in the JSON specification. The editor does not create it; the built-in sequence detectors used by the tests use it |
@@ -140,9 +140,11 @@ Timing, in time steps after an input event at time step *t*:
 | *t* + 2 | OP |
 | *t* + 3 | NOT gates (Ā, S̄) and delay neuron |
 | *t* + 4 | AND gates (transitions) |
-| *t* + 5 | Reset of the source state; direct: Set of the destination (N1) and Output; inhibition-based: NOR gates |
-| *t* + 6 | Direct: destination active (ring); inhibition-based: Set and Output |
-| *t* + 7 | Inhibition-based: destination active (ring) |
+| *t* + 5 | Reset of the source state; direct: Set of the destination (N1: it is active) and Output; inhibition-based: NOR gates |
+| *t* + 6 | Direct: ring; inhibition-based: Set (N1: active) and Output |
+| *t* + 7 | Inhibition-based: ring |
+
+A state is active while any of its three latch neurons spikes: N1 (the step it is set), then the ring N2 ↔ N3.
 
 Two implementations, chosen in the Network tab and saved with the machine (`"architecture"` in the JSON):
 

@@ -160,7 +160,11 @@ function netLayout(net) {
   });
   const all = Object.values(nodes);
   const place = parallel ? netPlaceParallel : netPlacePipelined;
-  const dlK = Math.max(0, ...all.filter((n) => n.kind === "delay_line" && n.base && n.base[0] === "src").map((n) => n.k));
+  // delay lines of an input neuron of the Alt. OR (it is the input one step later for the AND
+  // gates that negate the inputs before it): they continue its input's row from "Inputs + 2"
+  const isRelayLine = (n) => n.kind === "delay_line" && n.base && n.base[0] === "n" && nodes["n" + n.base[1]].kind === "relay";
+  const dlK = Math.max(0, ...all.filter((n) => n.kind === "delay_line" && n.base && n.base[0] === "src").map((n) => n.k),
+    ...all.filter(isRelayLine).map((n) => n.k + 1));
   const shift = dlK * DL_DX;
   // delay lines of neurons (OP + 2, ...): on the row of the delay neuron (OP + 1), one column per step
   const isOpLine = (n) => n.kind === "delay_line" && n.base && n.base[0] === "n" && nodes["n" + n.base[1]].kind === "op";
@@ -189,6 +193,13 @@ function netLayout(net) {
   for (const n of all) if (n.kind === "relay" && n.tap && dlK >= 1) {
     const src = all.find((m) => m.src && m.kind === "input" && m.label === n.input);
     if (src) Object.assign(n, { x: X.src + DL_DX, y: src.y, major: X.src + DL_DX, asDelay: true });
+  }
+  for (const n of all.filter(isRelayLine)) {
+    const R = nodes["n" + n.base[1]], src = all.find((m) => m.src && m.kind === "input" && m.label === R.input);
+    if (!src) continue;
+    const k = n.k + 1, raw = (j) => all.some((m) => m.kind === "delay_line" && m.base && m.base[0] === "src" && m.k === j && nodes["s" + m.base[1]] === src);
+    Object.assign(n, { x: X.src + DL_DX * k, y: src.y + (raw(k) ? 32 : 0), major: X.src + DL_DX * k });
+    if (n.k === 1 && !R.tap && !raw(1)) Object.assign(R, { x: X.src + DL_DX, y: src.y, major: X.src + DL_DX });
   }
   stack(all.filter((n) => n.kind === "delay").concat(all.filter((n) => n.kind === "not_input")), X.gate, 56);
   // delay lines of OP (OP + 2 drives the NOR gates, OP + 3 the outputs of the ORs): above the
@@ -636,7 +647,10 @@ function termTitle(n) {
   const route = t ? `${stName(t.from)}→${stName(t.to)}` : n.label.replace(/ \(\d+\)( \+1)?$/, "").replace(/ \+1$/, "");
   return `T${i < 0 ? "?" : i}${multi ? "." + (k + 1) : ""} · ${route}`;
 }
+// the input neuron of the Alt. OR that a delay neuron repeats, if any
+const relayOf = (n) => (n.base && n.base[0] === "n" && netData?.nodes["n" + n.base[1]]?.kind === "relay" ? netData.nodes["n" + n.base[1]] : null);
 const delayName = (n) => {                     // A +3, OP +2...
+  if (relayOf(n)) return `${relayOf(n).input} + ${n.k + 1} (input neuron of the Alt. OR, one step later)`;
   const base = n.label.replace(/ \+\d+$/, "");
   return `${base} + ${n.k}`;
 };
@@ -653,6 +667,7 @@ function netGlyph(n) {
   if (n.kind === "op") return "OP";
   if (n.kind === "delay") return "OP+1";
   // the name of a delay neuron fits inside it when short (no label below, which wires would cross)
+  if (n.kind === "delay_line" && relayOf(n)) return relayOf(n).input.length <= 3 ? `${relayOf(n).input}+${n.k + 1}` : "+" + (n.k + 1);
   if (n.kind === "delay_line") return n.label.replace(" ", "").length <= 6 ? n.label.replace(" ", "") : "+" + n.k;
   if (isTermLine(n)) return "+1";
   if (n.kind === "not_input" || n.kind === "not_state") return "¬";
@@ -670,6 +685,7 @@ function netLabelLines(n) {
   if (n.kind === "delay") return [];
   if (n.kind === "term_relay") return [`T${tIndex(n.tid)}+1`];
   if (n.kind === "reset_relay") return [`Reset ${stName(n.sid)}+1` + (n.tid ? ` (T${tIndex(n.tid)})` : "")];
+  if (n.kind === "delay_line" && relayOf(n)) return relayOf(n).input.length <= 3 ? [] : [`${relayOf(n).input} +${n.k + 1}`];
   if (n.kind === "delay_line") return n.label.replace(" ", "").length <= 6 ? [] : [n.label];
   if (n.kind === "no_event") return ["¬OP(t) ∧ OP(t−1)"];
   if (n.kind === "nor") {

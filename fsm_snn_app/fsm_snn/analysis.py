@@ -9,14 +9,14 @@ from .spec import normalise
 
 
 def _state_spikes(net: Netlist, spikes: dict, sid: str) -> list[int]:
-    """Steps in which a state is active: spikes of its latch ring."""
+    """Steps in which a state is active: spikes of its latch (N1, N2 or N3)."""
     return sorted({t for n in net.states[sid] for t in spikes.get(n, [])})
 
 
 def _expected_state_steps(s, events, ref, end_step, tm, perm=()):
-    """Expected ring activity of each state (one spike per step while active): a ring
-    stops stop_latency steps after the input spikes that leave its state and starts state_latency
-    steps after those that enter it. A state that is never left (``perm``) never stops."""
+    """Expected latch activity of each state (one spike per step while active): it stops
+    stop_latency steps after the input spikes that leave its state and starts state_latency
+    steps after those that enter it (N1, then the ring). A state that is never left (``perm``) never stops."""
     lat = tm["state_latency"]
     st = {x["id"]: x for x in s["states"]}
     active_from = {sid: tm["ready_step"] for sid in st if st[sid]["initial"]}
