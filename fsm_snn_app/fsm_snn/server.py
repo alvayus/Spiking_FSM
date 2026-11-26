@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import __version__, files
 from .backends import available_backends
-from .builder import ARCHITECTURES, DEFAULT_ARCHITECTURE, TIMING, _modes, _transitions, build, min_event_gap
+from .builder import ARCHITECTURES, DEFAULT_ARCHITECTURE, TIMING, build, min_event_gap
 from .codegen import generate_code
 from .energy import estimate as estimate_energy
 from .pipeline import export_script, request_cancel, run
@@ -33,14 +33,6 @@ def api_check(body):
     out = dict(errors=errors, warnings=warnings, notes=notes(s))
     if not errors:
         out["min_event_gap"] = {a: min_event_gap(dict(s, architecture=a)) for a in ARCHITECTURES}
-        shared = _modes(s, _transitions(s, disjoint=True))["shared"] if min_event_gap(dict(s, architecture="parallel")) > 1 else set()
-        if shared:
-            names = [x["name"] for x in s["states"] if x["id"] in shared]
-            out["notes"].append(
-                f"Several transitions can enter {', '.join(names)} with the same input spikes. "
-                "So that no neuron receives two excitatory spikes at once, the parallel network "
-                "has no 1-step bypass out of " + ("it" if len(names) == 1 else "them")
-                + ": it needs input spikes at least 2 steps apart.")
     return out
 
 

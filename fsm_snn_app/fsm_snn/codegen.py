@@ -106,7 +106,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             a, b = st_by_id[t["from"]]["name"], st_by_id[t["to"]]["name"]
             via = n.get("via")
             var = unique(f"AND_{a}_{b}" + (f"_{k + 1}" if len(t["options"]) > 1 else "")
-                         + (f"_{ {'latch': 'latch', 'bypass 1': 'b1'}[via]}" if via else ""))
+                         + (f"_{ {'latch': 'latch', 'bypass 1': 'b1'}[via]}" if via else "") + (f"_{n['grp'] + 1}" if n.get("grp") else ""))
             com = f"AND gate of {a} -> {b}: {option_to_text(n.get('cond', t['options'][k]))}" + (f" ({via})" if via else "")
         else:
             var, com = unique("output"), "output neuron"
@@ -221,7 +221,8 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         w("")
         w("Parallel implementation: bypasses pass the transitions fired by the previous")
         w("input spikes on to the next ones, so input spikes may come closer together.")
-        w("Each term has up to two AND gates (latch and bypass 1), and at most one fires.")
+        w("Each term has a latch AND gate and bypass 1 AND gates (one per group of AND gates")
+        w("that can enter its source state together, with priority), and at most one fires.")
     if simulation:
         w("")
         w("The script builds the network, runs it, compares the states (and Output) with")
@@ -326,7 +327,7 @@ def _comparison(w, s, net, inp, duration, slug):
     """Simulate tab: compare with the reference automaton and save the results."""
     events = inp["events"]
     ref = run_reference(s, events)
-    exp = _expected_state_steps(s, events, ref, duration, net.timing)
+    exp = _expected_state_steps(s, events, ref, duration, net.timing, net.perm)
     initial = next((st["name"] for st in s["states"] if st["initial"]), None)
     out = net.output is not None
     w("")

@@ -85,8 +85,8 @@ def test_counts_paper_simple():
     assert c["max_delay"] == 1
     assert summary(dict(S.template_simple(), architecture="parallel"))["neurons"] > c["neurons"]
     # SGf and SGb together leave S2 for S0 and S1: two terms can enter S1 at once, so the
-    # parallel network has no 1-step bypass out of S1 (spikes at least 2 steps apart)
-    assert min_event_gap(dict(S.template_simple(), architecture="parallel")) == 2
+    # terms out of S1 have one bypass t-1 per group of them (priority): spikes on any step
+    assert min_event_gap(dict(S.template_simple(), architecture="parallel")) == 1
     assert min_event_gap(dict(S.template_detector(), architecture="parallel")) == 1
 
 

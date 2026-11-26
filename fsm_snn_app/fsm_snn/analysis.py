@@ -13,10 +13,10 @@ def _state_spikes(net: Netlist, spikes: dict, sid: str) -> list[int]:
     return sorted({t for n in net.states[sid] for t in spikes.get(n, [])})
 
 
-def _expected_state_steps(s, events, ref, end_step, tm):
+def _expected_state_steps(s, events, ref, end_step, tm, perm=()):
     """Expected ring activity of each state (one spike per step while active): a ring
     stops stop_latency steps after the input spikes that leave its state and starts state_latency
-    steps after those that enter it."""
+    steps after those that enter it. A state that is never left (``perm``) never stops."""
     lat = tm["state_latency"]
     st = {x["id"]: x for x in s["states"]}
     active_from = {sid: tm["ready_step"] for sid in st if st[sid]["initial"]}
@@ -33,7 +33,7 @@ def _expected_state_steps(s, events, ref, end_step, tm):
         b, a = set(before), set(after)
         left = {tmap[t]["from"] for t in fired if tmap[t]["to"] != tmap[t]["from"]}
         for sid in b:
-            if sid not in a or sid in left:        # left (and maybe entered again)
+            if sid not in a or (sid in left and sid not in perm):    # left (and maybe entered again)
                 close(sid, e + tm["stop_latency"])
                 if sid in a:
                     active_from[sid] = e + lat
@@ -104,7 +104,7 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
         per_event.append(dict(step=e, inputs=sorted(ev), expected=[names[x] for x in exp],
                               obtained=[names[x] for x in got], ok=ok))
         fired = [tmap[t] for t in term_spk.get(e + T_TERM + offset, ()) if t in tmap]
-        left = {t["from"] for t in fired if t["to"] != t["from"]}
+        left = {t["from"] for t in fired if t["to"] != t["from"] and t["from"] not in net.perm}
         active = (active - left) | {t["to"] for t in fired}
     final_ok = None
     if events:
@@ -154,7 +154,7 @@ def analyse(spec: dict, net: Netlist, spikes: dict, events: list, trains: dict,
         rows.append(dict(label=name, kind="input", spikes=sorted(trains.get(name, []))))
     if net.op is not None:
         rows.append(dict(label="OP", kind="op", spikes=sorted(spikes.get(net.op, []))))
-    exp_states = _expected_state_steps(s, events, ref, duration_steps, tm)
+    exp_states = _expected_state_steps(s, events, ref, duration_steps, tm, net.perm)
     # fsm: the abstract machine (no delays), drawn in its own plot ("Show expected");
     # the comparison (expected=) uses the reference shifted by the network latency
     fsm = _fsm_intervals(s, [ev for ev in events if ev[0] < duration_steps], ref, duration_steps)
