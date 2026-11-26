@@ -27,7 +27,7 @@ const NET_STYLE = {
   term_relay: { fill: "#fff2cc", stroke: "#d6b656", name: "Delay neuron of a transition (+1)" },
   reset_relay: { fill: "#fff2cc", stroke: "#d6b656", name: "Delay neuron of a Reset (+1)" },
   not_input: { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate of an input (Ā+3: the input 3 steps later, negated)" },
-  not_state: { fill: "#d5e8d4", stroke: "#82b366", name: "NOT gate of a state (S̄)" },
+  not_state: { fill: "#f8cecc", stroke: "#b85450", name: "NOT gate of a state (S̄)" },
   term:      { fill: "#e1d5e7", stroke: "#9673a6", name: "AND gate (transition)" },
   no_event:  { fill: "#e1d5e7", stroke: "#9673a6", name: "Bypass guard ¬OP(t) ∧ OP(t − 1)" },
   no_prev:   { fill: "#e1d5e7", stroke: "#9673a6", name: "Bypass guard OP(t) ∧ ¬OP(t − 2)" },
