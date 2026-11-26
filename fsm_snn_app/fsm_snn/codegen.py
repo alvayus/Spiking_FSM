@@ -72,7 +72,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             continue
         kind, label = n["kind"], n["label"]
         if kind == "op":
-            var, com = unique("OP"), "OP: alternative OR gate of the inputs (operation signal)"
+            var, com = unique("OP"), "OP: Alt. OR (alternative OR gate) of the inputs (operation signal)"
         elif kind == "delay_line":
             var = unique("delay_" + label.replace(" +", "_plus"))
             com = f"delay line: {label.rsplit(' +', 1)[0]} repeated {n['k']} step{'s' if n['k'] > 1 else ''} later"
@@ -89,7 +89,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             var, com = unique("NOT_" + name), f"NOT gate of state {name} (S̄)"
         elif kind == "relay":
             var = unique("OR_in_" + n["input"])
-            com = f"input neuron {n['input']} of the alternative OR gate, inhibited by the inputs before it (at most one excites OP)"
+            com = f"input neuron {n['input']} of the Alt. OR (alternative OR gate), inhibited by the inputs before it (at most one excites OP)"
         elif kind == "reset_relay":
             var = unique("reset_plus1_" + label.split(" ")[1])
             com = f"delay neuron: the AND gates that leave {label.split(' ')[1]} one step later"
@@ -99,9 +99,9 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
             var, com = unique("guard_not_OP_prev2"), "bypass guard OP(t) AND NOT OP(t-2): input spikes now and none 2 steps before (cancels bypass t-2)"
         elif kind == "nor":
             if n.get("role") == "set":
-                var, com = unique("NOR_set_" + sname(n["sid"])), f"NOR gate of the OR gate of the AND gates that enter {sname(n['sid'])} (into its Set neuron N1)"
+                var, com = unique("NOR_set_" + sname(n["sid"])), f"NOR gate of the Inh.-based OR of the AND gates that enter {sname(n['sid'])} (into its Set neuron N1)"
             else:
-                var, com = unique("NOR_output"), "NOR gate of the OR gate of the AND gates that enter accepting states (into Output)"
+                var, com = unique("NOR_output"), "NOR gate of the Inh.-based OR of the AND gates that enter accepting states (into Output)"
         elif kind == "term":
             tid, k = term_info[i]
             t = trans[tid]
@@ -137,7 +137,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         if qk in ("no_event", "no_prev"):
             return "NOT gates and delay neuron", ("OP excites it" if rec == "exc" else "OP inhibits it")
         if qk == "nor":
-            return "Inhibition-based OR gates", (f"{pn} excites {qn}" if rec == "exc" else f"{pn} fired: inhibits {qn}")
+            return "Inh.-based OR gates", (f"{pn} excites {qn}" if rec == "exc" else f"{pn} fired: inhibits {qn}")
         if qk in ("delay_line", "term_relay", "reset_relay"):
             return "Delay lines", f"{pn} -> {qn} (one step later)"
         if qk == "delay":
@@ -183,9 +183,9 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
                 return "Latches", (f"{pn} resets {st}" if qn.endswith(("N2", "N3")) else
                                    f"{pn} sets {st} (OR gate)" if rec == "exc" else f"{pn} cancels a set of {st} still pending")
             if pk == "nor":
-                return "Latches", f"{pn}: {st} was not entered (inhibition-based OR)"
+                return "Latches", f"{pn}: {st} was not entered (Inh.-based OR)"
             if pk in ("op", "delay", "delay_line"):
-                return "Latches", f"{pn} excites the set neuron of {st} (inhibition-based OR)"
+                return "Latches", f"{pn} excites the set neuron of {st} (Inh.-based OR)"
             if pk == "latch":
                 return "Latches", "internal connections of the latch"
             return "Latches", ""
@@ -281,7 +281,7 @@ def generate_code(spec: dict, params: dict | None = None, simulation: bool = Fal
         extra = ", active at start" if st["initial"] else ""
         w(f"{var} = sim.Population(3, cell, label={var!r})   # latch of state {st['name']}: [N1 set, N2 ring, N3 ring]{extra}")
     w("")
-    order = ["OP", "Delay lines", "NOT gates and delay neuron", "AND gates (transition terms)", "Inhibition-based OR gates",
+    order = ["OP", "Delay lines", "NOT gates and delay neuron", "AND gates (transition terms)", "Inh.-based OR gates",
              "Latches", "Output"]
     for sec in order:
         if sec not in sections:
